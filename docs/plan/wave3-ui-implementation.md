@@ -1,12 +1,21 @@
-# Wave 3 UI Components Implementation Plan
+# Wave 3 UI Components Implementation Plan (v2 — rework)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the PySide6 UI for simple-edge-tts Wave 3, containing the Main Window (T7), Settings Dialog (T8), and System Tray (T9) with follower OS theming and full i18n support.
 
-**Architecture:** Use PySide6 layouts and widgets. Pure UI logic and bindings are tested using `pytest-qt`. QThread is used to execute edge-tts generation asynchronously to avoid blocking the Qt GUI thread. ConfigManager and I18n are bound to UI components.
+**Architecture:** Per spec §3.1/§4.1 — left-right split layout. `voice_panel.py` (left ~30%) hosts voice selection, rate/pitch sliders, and output folder. `text_panel.py` (right ~70%) hosts text input, action buttons, and status display. `main_window.py` composes both panels. QThread-based async for voice loading (no `asyncio.run()` in Qt event loop). ConfigManager and I18n are bound to UI components.
 
 **Tech Stack:** Python 3.11+, PySide6, edge-tts, pytest, pytest-qt
+
+**Rework rationale (reviewer REJECTED v1):**
+- **F1 CRITICAL**: v1 used single-column `QVBoxLayout`; spec §3.1 requires left-right split (`QHBoxLayout`, 30/70)
+- **F2 WARNING**: v1 eliminated `voice_panel.py` / `text_panel.py`; spec §4.1 mandates them
+- **F7 WARNING**: `get_grouped_voices_sync()` calls `asyncio.run()`, crashes inside running Qt event loop on language change → use QThread
+- **F3 WARNING**: `from pathlib import Path` at bottom of `system_tray.py` → move to top
+- **F4 WARNING**: `closeEvent` accesses private `_tray_icon` → expose public `is_visible()` method
+- **F8 WARNING**: `_on_voice_changed` auto-saves on every programmatic combo update → guard with `_loading` flag
+- **F9 WARNING**: No validation in rate/pitch parsing → add `try/except` with fallback
 
 ---
 
@@ -16,35 +25,45 @@
 |---|---|
 | `src/ui/__init__.py` | Package marker |
 | `src/ui/theme.py` | Light/dark theme detection and QSS styling |
-| `src/ui/main_window.py` | QMainWindow with toolbar, text editor, voice selectors, and TTS controls |
-| `src/ui/settings_dialog.py` | Settings dialog containing rate/pitch sliders, output dir picker, and language switching |
-| `src/ui/system_tray.py` | System tray icon, minimize-to-tray behavior, context menu, and notifications |
+| `src/ui/voice_panel.py` | Left panel (~30%): voice dropdown (with search), rate/pitch sliders, output folder picker |
+| `src/ui/text_panel.py` | Right panel (~70%): text input area, action buttons, status display |
+| `src/ui/main_window.py` | QMainWindow: composes voice_panel + text_panel in left-right split, toolbar, status bar |
+| `src/ui/settings_dialog.py` | Modal dialog for language switching (rate/pitch/output now inline in voice_panel) |
+| `src/ui/system_tray.py` | System tray icon, minimize-to-tray behavior, context menu, notifications |
 | `src/app.py` | Application setup (theme listener, high-DPI) |
-| `tests/test_ui/test_main_window.py` | Tests for Main Window UI logic, bindings, and states |
-| `tests/test_ui/test_settings_dialog.py` | Tests for Settings Dialog sliders, directory picker, and language switching |
+| `tests/test_ui/__init__.py` | Test package marker |
+| `tests/test_ui/test_voice_panel.py` | Tests for voice panel: voice loading, filtering, slider values, config save guard |
+| `tests/test_ui/test_text_panel.py` | Tests for text panel: button states, text input, signal emission |
+| `tests/test_ui/test_main_window.py` | Tests for main window: panel composition, toolbar, language toggle |
+| `tests/test_ui/test_settings_dialog.py` | Tests for Settings Dialog: language switching |
 | `tests/test_ui/test_system_tray.py` | Tests for System Tray icon states and context menus |
 
 ---
 
-## Task 7: Main Window & Theme System
+## Task 7: Main Window, Voice Panel, Text Panel & Theme System
 
 **Files:**
 - Create: `src/ui/__init__.py`
 - Create: `src/ui/theme.py`
+- Create: `src/ui/voice_panel.py`
+- Create: `src/ui/text_panel.py`
 - Create: `src/ui/main_window.py`
+- Create: `tests/test_ui/__init__.py`
+- Create: `tests/test_ui/test_voice_panel.py`
+- Create: `tests/test_ui/test_text_panel.py`
 - Create: `tests/test_ui/test_main_window.py`
 - Modify: `src/app.py`
 - Modify: `src/main.py`
 - Modify: `src/resources/translations/zh-TW.json`
 - Modify: `src/resources/translations/en-US.json`
 
-- [ ] **Step 1: Create `src/ui/__init__.py`**
+- [ ] **Step 1: Create `src/ui/__init__.py` and `tests/test_ui/__init__.py`**
 
-An empty file to mark the `src/ui` directory as a package.
+Empty files to mark directories as packages.
 
-- [ ] **Step 2: Add translation keys for new settings dialog and tray options**
+- [ ] **Step 2: Add translation keys for UI**
 
-Update translation files to support Settings and Tray menus.
+Update translation files to support all UI labels including voice panel, text panel, settings, and tray.
 
 Modify `src/resources/translations/zh-TW.json`:
 ```json
@@ -65,6 +84,7 @@ Modify `src/resources/translations/zh-TW.json`:
   "status_generating": "產生語音中...",
   "status_playing": "播放中...",
   "status_exported": "匯出完成：{filename}",
+  "status_loading_voices": "載入聲音列表中...",
   "error_no_internet": "無法連線到 TTS 服務，請檢查網路連線",
   "error_export_failed": "匯出失敗：{error}",
   "error_folder_not_writable": "無法寫入資料夾，請選擇其他位置",
@@ -79,9 +99,8 @@ Modify `src/resources/translations/zh-TW.json`:
   "cancel": "取消",
   "show_main": "顯示主視窗",
   "exit": "結束",
-  "tray_tooltip": "simple-edge-tts 語音合成",
-  "export_success_title": "匯出成功",
-  "export_success_msg": "已成功匯出 MP3 至：{path}"
+  "export_success_title": "匯出完成",
+  "export_success_msg": "已儲存至 {path}"
 }
 ```
 
@@ -90,13 +109,13 @@ Modify `src/resources/translations/en-US.json`:
 {
   "app_title": "simple-edge-tts",
   "voice_selection": "Voice Selection",
-  "search_voice": "Search voice...",
-  "parameters": "Settings Parameters",
+  "search_voice": "Search voices...",
+  "parameters": "Parameters",
   "rate": "Rate",
   "pitch": "Pitch",
   "output_settings": "Output Settings",
   "choose_folder": "Choose Folder",
-  "text_placeholder": "Type text here to convert...",
+  "text_placeholder": "Enter text to convert...",
   "preview": "Preview",
   "stop": "Stop",
   "export_mp3": "Export MP3",
@@ -104,124 +123,586 @@ Modify `src/resources/translations/en-US.json`:
   "status_generating": "Generating speech...",
   "status_playing": "Playing...",
   "status_exported": "Exported: {filename}",
-  "error_no_internet": "Cannot connect to TTS service, please check internet",
+  "status_loading_voices": "Loading voices...",
+  "error_no_internet": "Cannot connect to TTS service. Please check your internet connection.",
   "error_export_failed": "Export failed: {error}",
-  "error_folder_not_writable": "Cannot write to output folder, please choose another",
-  "voice_group_tw": "Taiwan Chinese",
+  "error_folder_not_writable": "Cannot write to folder. Please choose another location.",
+  "voice_group_tw": "Traditional Chinese",
   "voice_group_en": "English",
-  "voice_group_other": "Others",
+  "voice_group_other": "Other",
   "lang_toggle": "繁中",
   "settings": "Settings",
   "settings_title": "Settings",
   "language": "Language",
   "save": "Save",
   "cancel": "Cancel",
-  "show_main": "Show Window",
+  "show_main": "Show Main Window",
   "exit": "Exit",
-  "tray_tooltip": "simple-edge-tts TTS Synthesizer",
-  "export_success_title": "Export Succeeded",
-  "export_success_msg": "Successfully exported MP3 to: {path}"
+  "export_success_title": "Export Complete",
+  "export_success_msg": "Saved to {path}"
 }
 ```
 
-- [ ] **Step 3: Implement `src/ui/theme.py`**
+- [ ] **Step 3: Create `src/ui/theme.py`**
 
 Create `src/ui/theme.py`:
 ```python
-"""Theme definitions and helper to apply OS light/dark modes."""
+"""Light/dark theme detection and QSS styling. Listens to OS theme changes."""
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QPalette
 
-LIGHT_QSS = """
-QMainWindow {
-    background-color: #f5f5f7;
-}
-QTextEdit {
-    background-color: #ffffff;
-    color: #1d1d1f;
-    border: 1px solid #d2d2d7;
-    border-radius: 8px;
-    padding: 12px;
-}
-QComboBox {
-    background-color: #ffffff;
-    border: 1px solid #d2d2d7;
-    border-radius: 6px;
-    padding: 6px;
-}
-QPushButton {
-    background-color: #007aff;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    padding: 8px 16px;
-}
-QPushButton:hover {
-    background-color: #0066d6;
-}
-QPushButton:disabled {
-    background-color: #d2d2d7;
-    color: #86868b;
-}
+
+def is_dark_mode(app: QApplication) -> bool:
+    """Detect OS dark mode via palette luminance."""
+    palette = app.palette()
+    bg = palette.color(QPalette.ColorRole.Window)
+    # Use luminance formula: darker backgrounds have lower values
+    luminance = 0.299 * bg.redF() + 0.587 * bg.greenF() + 0.114 * bg.blueF()
+    return luminance < 0.5
+
+
+_LIGHT_QSS = """
+QMainWindow { background-color: #f5f5f5; }
+QTextEdit { background-color: #ffffff; border: 1px solid #cccccc; border-radius: 4px; padding: 8px; }
+QComboBox { padding: 4px 8px; }
+QSlider::groove:horizontal { height: 6px; background: #cccccc; border-radius: 3px; }
+QSlider::handle:horizontal { width: 16px; height: 16px; background: #4a90d9; border-radius: 8px; margin: -5px 0; }
+QPushButton { padding: 6px 16px; border-radius: 4px; background-color: #4a90d9; color: white; border: none; }
+QPushButton:hover { background-color: #3a7bc8; }
+QPushButton:disabled { background-color: #cccccc; color: #888888; }
+QGroupBox { font-weight: bold; border: 1px solid #dddddd; border-radius: 4px; margin-top: 12px; padding-top: 16px; }
+QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
 """
 
-DARK_QSS = """
-QMainWindow {
-    background-color: #1c1c1e;
-}
-QTextEdit {
-    background-color: #2c2c2e;
-    color: #f5f5f7;
-    border: 1px solid #3a3a3c;
-    border-radius: 8px;
-    padding: 12px;
-}
-QComboBox {
-    background-color: #2c2c2e;
-    color: #f5f5f7;
-    border: 1px solid #3a3a3c;
-    border-radius: 6px;
-    padding: 6px;
-}
-QPushButton {
-    background-color: #0a84ff;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    padding: 8px 16px;
-}
-QPushButton:hover {
-    background-color: #409cff;
-}
-QPushButton:disabled {
-    background-color: #3a3a3c;
-    color: #636366;
-}
+_DARK_QSS = """
+QMainWindow { background-color: #2b2b2b; }
+QTextEdit { background-color: #3c3c3c; color: #e0e0e0; border: 1px solid #555555; border-radius: 4px; padding: 8px; }
+QComboBox { padding: 4px 8px; background-color: #3c3c3c; color: #e0e0e0; }
+QSlider::groove:horizontal { height: 6px; background: #555555; border-radius: 3px; }
+QSlider::handle:horizontal { width: 16px; height: 16px; background: #5b9bd5; border-radius: 8px; margin: -5px 0; }
+QPushButton { padding: 6px 16px; border-radius: 4px; background-color: #5b9bd5; color: white; border: none; }
+QPushButton:hover { background-color: #4a8ac4; }
+QPushButton:disabled { background-color: #555555; color: #888888; }
+QGroupBox { font-weight: bold; border: 1px solid #555555; border-radius: 4px; margin-top: 12px; padding-top: 16px; color: #e0e0e0; }
+QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
 """
 
-def is_dark_mode() -> bool:
-    hints = QApplication.instance().styleHints()
-    if hasattr(hints, "colorScheme"):
-        return hints.colorScheme() == Qt.ColorScheme.Dark
-    palette = QApplication.instance().palette()
-    return palette.color(QPalette.ColorRole.Window).lightness() < 128
 
 def apply_theme(app: QApplication):
-    qss = DARK_QSS if is_dark_mode() else LIGHT_QSS
-    app.setStyleSheet(qss)
+    """Apply light or dark QSS based on OS setting."""
+    if is_dark_mode(app):
+        app.setStyleSheet(_DARK_QSS)
+    else:
+        app.setStyleSheet(_LIGHT_QSS)
 ```
 
-- [ ] **Step 4: Write failing tests for MainWindow**
+- [ ] **Step 4: Write failing tests for VoicePanel**
 
-Create `tests/test_ui/test_main_window.py`:
+Create `tests/test_ui/test_voice_panel.py`:
 ```python
-"""Tests for main_window — layout, toolbar, widgets, i18n, worker thread integration."""
+"""Tests for VoicePanel — voice loading (async), filtering, slider values, config save guard."""
+
+from pathlib import Path
+import pytest
+from unittest.mock import MagicMock
+from PySide6.QtCore import Qt
+from src.ui.voice_panel import VoicePanel
+from src.i18n import I18n
+from src.config_manager import ConfigManager
+
+TRANSLATIONS_DIR = Path(__file__).parent.parent.parent / "src" / "resources" / "translations"
+
+@pytest.fixture
+def i18n():
+    return I18n("zh-TW", translations_dir=TRANSLATIONS_DIR)
+
+@pytest.fixture
+def config(tmp_path):
+    return ConfigManager(config_dir=tmp_path)
+
+def test_voice_panel_creates_with_correct_widgets(qtbot, i18n, config):
+    panel = VoicePanel(i18n=i18n, config=config)
+    qtbot.addWidget(panel)
+
+    # Should have search input, voice combo, rate/pitch sliders, output dir
+    assert panel._voice_search is not None
+    assert panel._voice_combo is not None
+    assert panel._rate_slider is not None
+    assert panel._pitch_slider is not None
+    assert panel._dir_btn is not None
+
+def test_voice_panel_rate_slider_range(qtbot, i18n, config):
+    panel = VoicePanel(i18n=i18n, config=config)
+    qtbot.addWidget(panel)
+    assert panel._rate_slider.minimum() == -50
+    assert panel._rate_slider.maximum() == 100
+
+def test_voice_panel_pitch_slider_range(qtbot, i18n, config):
+    panel = VoicePanel(i18n=i18n, config=config)
+    qtbot.addWidget(panel)
+    assert panel._pitch_slider.minimum() == -50
+    assert panel._pitch_slider.maximum() == 50
+
+def test_voice_panel_loading_flag_prevents_config_save(qtbot, i18n, config):
+    """F8 fix: programmatic combo changes during loading should NOT trigger config save."""
+    panel = VoicePanel(i18n=i18n, config=config)
+    qtbot.addWidget(panel)
+
+    # Simulate the loading guard
+    panel._loading = True
+    config.save = MagicMock()
+    panel._voice_combo.addItem("test", "test-voice")
+    panel._voice_combo.setCurrentIndex(0)
+    config.save.assert_not_called()
+
+def test_voice_panel_rate_config_load_with_invalid_value(qtbot, i18n, config):
+    """F9 fix: invalid rate/pitch values should fallback to 0."""
+    config.set("rate", "invalid")
+    config.set("pitch", "also-invalid")
+    panel = VoicePanel(i18n=i18n, config=config)
+    qtbot.addWidget(panel)
+
+    assert panel._rate_slider.value() == 0
+    assert panel._pitch_slider.value() == 0
+```
+
+- [ ] **Step 5: Run VoicePanel tests to verify they fail**
+
+Run: `/Users/cheerc/.local/bin/uv run --extra dev pytest tests/test_ui/test_voice_panel.py -v`
+Expected: FAIL (No module named `src.ui.voice_panel`)
+
+- [ ] **Step 6: Implement `src/ui/voice_panel.py` (Left Panel ~30%)**
+
+Create `src/ui/voice_panel.py`:
+```python
+"""Left panel: voice dropdown (with search), rate/pitch sliders, output folder picker.
+
+Spec §3.1: This is the left ~30% of the main window layout.
+Spec §4.1: Module ui/voice_panel.py.
+"""
+
+import re
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QComboBox, QSlider, QPushButton, QGroupBox, QFileDialog,
+)
+
+from src.config_manager import ConfigManager
+from src.i18n import I18n
+from src.tts_engine import TTSEngine, format_rate, format_pitch
+
+
+class VoiceLoaderThread(QThread):
+    """Load voices asynchronously to avoid asyncio.run() inside Qt event loop.
+
+    F7 fix: get_grouped_voices_sync() calls asyncio.run(), which crashes if
+    called inside a running Qt event loop. This QThread runs its own event loop.
+    """
+    voices_loaded = Signal(object)  # OrderedDict
+    load_failed = Signal(str)
+
+    def run(self):
+        try:
+            engine = TTSEngine()
+            grouped = engine.get_grouped_voices_sync()
+            self.voices_loaded.emit(grouped)
+        except Exception as e:
+            self.load_failed.emit(str(e))
+
+
+class DoubleClickSlider(QSlider):
+    """Custom slider that resets to 0 on double-click."""
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+
+    def mouseDoubleClickEvent(self, event):
+        self.setValue(0)
+        super().mouseDoubleClickEvent(event)
+
+
+class VoicePanel(QWidget):
+    """Left panel containing voice selection, parameter sliders, and output settings.
+
+    Signals:
+        voice_changed(str): Emitted when voice selection changes (voice short name).
+        rate_changed(str): Emitted when rate slider changes (formatted like "+10%").
+        pitch_changed(str): Emitted when pitch slider changes (formatted like "-5Hz").
+    """
+    voice_changed = Signal(str)
+    rate_changed = Signal(str)
+    pitch_changed = Signal(str)
+
+    def __init__(self, i18n: I18n, config: ConfigManager, parent=None):
+        super().__init__(parent)
+        self._i18n = i18n
+        self._config = config
+        self._all_voices: list[dict] = []
+        self._loading = False  # F8 fix: guard against programmatic combo changes
+        self._voice_loader: VoiceLoaderThread | None = None
+
+        self._setup_ui()
+        self._load_config()
+        self._load_voices_async()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        # -- Voice Selection Group --
+        voice_group = QGroupBox(self._i18n.t("voice_selection"))
+        voice_layout = QVBoxLayout(voice_group)
+
+        self._voice_search = QLineEdit()
+        self._voice_search.setPlaceholderText(self._i18n.t("search_voice"))
+        self._voice_search.textChanged.connect(self._filter_voices)
+        voice_layout.addWidget(self._voice_search)
+
+        self._voice_combo = QComboBox()
+        self._voice_combo.currentTextChanged.connect(self._on_voice_changed)
+        voice_layout.addWidget(self._voice_combo)
+
+        layout.addWidget(voice_group)
+
+        # -- Parameters Group (rate/pitch sliders) --
+        param_group = QGroupBox(self._i18n.t("parameters"))
+        param_layout = QVBoxLayout(param_group)
+
+        # Rate slider
+        self._rate_label = QLabel(self._i18n.t("rate"))
+        param_layout.addWidget(self._rate_label)
+
+        self._rate_slider = DoubleClickSlider(Qt.Orientation.Horizontal)
+        self._rate_slider.setRange(-50, 100)
+        self._rate_slider.setValue(0)
+        self._rate_slider.valueChanged.connect(self._on_rate_changed)
+        param_layout.addWidget(self._rate_slider)
+
+        # Pitch slider
+        self._pitch_label = QLabel(self._i18n.t("pitch"))
+        param_layout.addWidget(self._pitch_label)
+
+        self._pitch_slider = DoubleClickSlider(Qt.Orientation.Horizontal)
+        self._pitch_slider.setRange(-50, 50)
+        self._pitch_slider.setValue(0)
+        self._pitch_slider.valueChanged.connect(self._on_pitch_changed)
+        param_layout.addWidget(self._pitch_slider)
+
+        layout.addWidget(param_group)
+
+        # -- Output Settings Group --
+        output_group = QGroupBox(self._i18n.t("output_settings"))
+        output_layout = QVBoxLayout(output_group)
+
+        self._dir_path_label = QLabel(self._config.get("output_dir"))
+        self._dir_path_label.setWordWrap(True)
+        output_layout.addWidget(self._dir_path_label)
+
+        self._dir_btn = QPushButton(self._i18n.t("choose_folder"))
+        self._dir_btn.clicked.connect(self._choose_folder)
+        output_layout.addWidget(self._dir_btn)
+
+        layout.addWidget(output_group)
+        layout.addStretch()
+
+    def _load_config(self):
+        """Load rate/pitch from config with validation (F9 fix)."""
+        # Rate
+        rate_str = self._config.get("rate") or "+0%"
+        try:
+            val = int(re.sub(r'[%+]', '', rate_str))
+            val = max(-50, min(100, val))
+        except (ValueError, TypeError):
+            val = 0
+        self._rate_slider.setValue(val)
+
+        # Pitch
+        pitch_str = self._config.get("pitch") or "+0Hz"
+        try:
+            val = int(re.sub(r'[Hz+]', '', pitch_str))
+            val = max(-50, min(50, val))
+        except (ValueError, TypeError):
+            val = 0
+        self._pitch_slider.setValue(val)
+
+    def _load_voices_async(self):
+        """Load voices in a QThread (F7 fix: avoids asyncio.run in Qt event loop)."""
+        self._loading = True
+        self._voice_loader = VoiceLoaderThread()
+        self._voice_loader.voices_loaded.connect(self._on_voices_loaded)
+        self._voice_loader.load_failed.connect(self._on_voices_load_failed)
+        self._voice_loader.start()
+
+    def _on_voices_loaded(self, grouped):
+        """Populate combo box after async voice loading completes."""
+        self._voice_combo.clear()
+        self._all_voices = []
+
+        for group, voices in grouped.items():
+            group_key = f"voice_group_{group.lower().replace('-', '_')}"
+            group_name = self._i18n.t(group_key)
+            if group_key == group_name:  # key not found, use raw
+                group_name = group
+
+            for v in voices:
+                name = v["ShortName"]
+                gender = v.get("Gender", "")
+                label = f"{name} ({gender}) - {group_name}"
+                self._all_voices.append({"label": label, "name": name, "raw": v})
+                self._voice_combo.addItem(label, name)
+
+        # Restore last voice
+        last_voice = self._config.get("last_voice")
+        if last_voice:
+            idx = self._voice_combo.findData(last_voice)
+            if idx >= 0:
+                self._voice_combo.setCurrentIndex(idx)
+
+        self._loading = False
+
+    def _on_voices_load_failed(self, error_msg: str):
+        self._loading = False
+        # Status will be updated by main_window via signal if needed
+
+    def _filter_voices(self, search_text: str):
+        self._loading = True  # F8 fix: guard during repopulation
+        self._voice_combo.clear()
+        search_lower = search_text.lower()
+        for item in self._all_voices:
+            if search_lower in item["label"].lower() or search_lower in item["name"].lower():
+                self._voice_combo.addItem(item["label"], item["name"])
+        self._loading = False
+
+    def _on_voice_changed(self, text: str):
+        """F8 fix: only save config when not in loading/filtering state."""
+        voice = self._voice_combo.currentData()
+        if voice and not self._loading:
+            self._config.set("last_voice", voice)
+            self._config.save()
+            self.voice_changed.emit(voice)
+
+    def _on_rate_changed(self, val: int):
+        sign = "+" if val >= 0 else ""
+        self._rate_label.setText(f"{self._i18n.t('rate')}: {sign}{val}%")
+        formatted = format_rate(val)
+        if not self._loading:
+            self._config.set("rate", formatted)
+            self._config.save()
+        self.rate_changed.emit(formatted)
+
+    def _on_pitch_changed(self, val: int):
+        sign = "+" if val >= 0 else ""
+        self._pitch_label.setText(f"{self._i18n.t('pitch')}: {sign}{val}Hz")
+        formatted = format_pitch(val)
+        if not self._loading:
+            self._config.set("pitch", formatted)
+            self._config.save()
+        self.pitch_changed.emit(formatted)
+
+    def _choose_folder(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, self._i18n.t("choose_folder"), self._config.get("output_dir")
+        )
+        if folder:
+            self._config.set("output_dir", folder)
+            self._config.save()
+            self._dir_path_label.setText(folder)
+
+    def get_selected_voice(self) -> str | None:
+        return self._voice_combo.currentData()
+
+    def get_rate(self) -> str:
+        return format_rate(self._rate_slider.value())
+
+    def get_pitch(self) -> str:
+        return format_pitch(self._pitch_slider.value())
+
+    def update_ui_texts(self):
+        """Update all labels for language change."""
+        self._voice_search.setPlaceholderText(self._i18n.t("search_voice"))
+        self._rate_label.setText(self._i18n.t("rate"))
+        self._pitch_label.setText(self._i18n.t("pitch"))
+        self._dir_btn.setText(self._i18n.t("choose_folder"))
+
+        # Reload voices with new language labels
+        self._load_voices_async()
+```
+
+- [ ] **Step 7: Write failing tests for TextPanel**
+
+Create `tests/test_ui/test_text_panel.py`:
+```python
+"""Tests for TextPanel — button states, text input, signal emission."""
 
 from pathlib import Path
 import pytest
 from PySide6.QtCore import Qt
+from src.ui.text_panel import TextPanel
+from src.i18n import I18n
+
+TRANSLATIONS_DIR = Path(__file__).parent.parent.parent / "src" / "resources" / "translations"
+
+@pytest.fixture
+def i18n():
+    return I18n("zh-TW", translations_dir=TRANSLATIONS_DIR)
+
+def test_text_panel_creates_with_correct_widgets(qtbot, i18n):
+    panel = TextPanel(i18n=i18n)
+    qtbot.addWidget(panel)
+
+    assert panel._text_edit is not None
+    assert panel._preview_btn is not None
+    assert panel._stop_btn is not None
+    assert panel._export_btn is not None
+
+def test_text_panel_buttons_disabled_initially(qtbot, i18n):
+    panel = TextPanel(i18n=i18n)
+    qtbot.addWidget(panel)
+
+    assert not panel._preview_btn.isEnabled()
+    assert not panel._stop_btn.isEnabled()
+    assert not panel._export_btn.isEnabled()
+
+def test_text_panel_buttons_enabled_with_text(qtbot, i18n):
+    panel = TextPanel(i18n=i18n)
+    qtbot.addWidget(panel)
+
+    panel._text_edit.setPlainText("Hello world")
+    assert panel._preview_btn.isEnabled()
+    assert panel._export_btn.isEnabled()
+    assert not panel._stop_btn.isEnabled()
+
+def test_text_panel_preview_signal(qtbot, i18n):
+    panel = TextPanel(i18n=i18n)
+    qtbot.addWidget(panel)
+
+    panel._text_edit.setPlainText("Test text")
+    with qtbot.waitSignal(panel.preview_requested, timeout=1000):
+        panel._preview_btn.click()
+
+def test_text_panel_get_text(qtbot, i18n):
+    panel = TextPanel(i18n=i18n)
+    qtbot.addWidget(panel)
+
+    panel._text_edit.setPlainText("  Hello  ")
+    assert panel.get_text() == "Hello"
+```
+
+- [ ] **Step 8: Implement `src/ui/text_panel.py` (Right Panel ~70%)**
+
+Create `src/ui/text_panel.py`:
+```python
+"""Right panel: text input, action buttons, status display.
+
+Spec §3.1: This is the right ~70% of the main window layout.
+Spec §4.1: Module ui/text_panel.py.
+"""
+
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QLabel,
+)
+
+from src.i18n import I18n
+
+
+class TextPanel(QWidget):
+    """Right panel containing text input, action buttons, and status label.
+
+    Signals:
+        preview_requested: Emitted when user clicks Preview button.
+        export_requested: Emitted when user clicks Export button.
+        stop_requested: Emitted when user clicks Stop button.
+    """
+    preview_requested = Signal()
+    export_requested = Signal()
+    stop_requested = Signal()
+
+    def __init__(self, i18n: I18n, parent=None):
+        super().__init__(parent)
+        self._i18n = i18n
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        # Text input area
+        self._text_edit = QTextEdit()
+        self._text_edit.setPlaceholderText(self._i18n.t("text_placeholder"))
+        self._text_edit.textChanged.connect(self._on_text_changed)
+        layout.addWidget(self._text_edit, stretch=1)
+
+        # Button row
+        btn_layout = QHBoxLayout()
+
+        self._preview_btn = QPushButton(f"▶ {self._i18n.t('preview')}")
+        self._preview_btn.setEnabled(False)
+        self._preview_btn.clicked.connect(self.preview_requested.emit)
+        btn_layout.addWidget(self._preview_btn)
+
+        self._stop_btn = QPushButton(f"⏹ {self._i18n.t('stop')}")
+        self._stop_btn.setEnabled(False)
+        self._stop_btn.clicked.connect(self.stop_requested.emit)
+        btn_layout.addWidget(self._stop_btn)
+
+        self._export_btn = QPushButton(f"💾 {self._i18n.t('export_mp3')}")
+        self._export_btn.setEnabled(False)
+        self._export_btn.clicked.connect(self.export_requested.emit)
+        btn_layout.addWidget(self._export_btn)
+
+        layout.addLayout(btn_layout)
+
+        # Status label (inline, not status bar — that's on MainWindow)
+        self._status_label = QLabel(self._i18n.t("status_ready"))
+        layout.addWidget(self._status_label)
+
+    def _on_text_changed(self):
+        has_text = bool(self._text_edit.toPlainText().strip())
+        self._preview_btn.setEnabled(has_text)
+        self._export_btn.setEnabled(has_text)
+
+    def get_text(self) -> str:
+        return self._text_edit.toPlainText().strip()
+
+    def set_status(self, message: str):
+        self._status_label.setText(message)
+
+    def set_generating(self, generating: bool):
+        """Disable buttons during TTS generation."""
+        self._preview_btn.setEnabled(not generating and bool(self.get_text()))
+        self._export_btn.setEnabled(not generating and bool(self.get_text()))
+
+    def set_playing(self, playing: bool):
+        """Update button states based on playback state."""
+        self._stop_btn.setEnabled(playing)
+        has_text = bool(self.get_text())
+        self._preview_btn.setEnabled(not playing and has_text)
+        self._export_btn.setEnabled(not playing and has_text)
+
+    def update_ui_texts(self):
+        """Update all labels for language change."""
+        self._text_edit.setPlaceholderText(self._i18n.t("text_placeholder"))
+        self._preview_btn.setText(f"▶ {self._i18n.t('preview')}")
+        self._stop_btn.setText(f"⏹ {self._i18n.t('stop')}")
+        self._export_btn.setText(f"💾 {self._i18n.t('export_mp3')}")
+        self._status_label.setText(self._i18n.t("status_ready"))
+```
+
+- [ ] **Step 9: Write failing tests for MainWindow**
+
+Create `tests/test_ui/test_main_window.py`:
+```python
+"""Tests for MainWindow — panel composition, toolbar, language toggle."""
+
+from pathlib import Path
+import pytest
+from PySide6.QtWidgets import QHBoxLayout
 from src.ui.main_window import MainWindow
 from src.i18n import I18n
 from src.config_manager import ConfigManager
@@ -236,59 +717,80 @@ def i18n():
 def config(tmp_path):
     return ConfigManager(config_dir=tmp_path)
 
-def test_mainwindow_creates(qtbot, i18n, config):
+def test_main_window_has_left_right_split(qtbot, i18n, config):
+    """F1 fix: MainWindow must use left-right QHBoxLayout per spec §3.1."""
     win = MainWindow(i18n=i18n, config=config)
     qtbot.addWidget(win)
-    assert win is not None
-    assert "simple-edge-tts" in win.windowTitle()
 
-def test_mainwindow_buttons_initially_disabled(qtbot, i18n, config):
-    win = MainWindow(i18n=i18n, config=config)
-    qtbot.addWidget(win)
-    assert not win._preview_btn.isEnabled()
-    assert not win._export_btn.isEnabled()
-    assert not win._stop_btn.isEnabled()
+    central = win.centralWidget()
+    layout = central.layout()
+    # The central widget's layout should be an HBox (left-right split)
+    assert isinstance(layout, QHBoxLayout), f"Expected QHBoxLayout, got {type(layout).__name__}"
 
-def test_mainwindow_buttons_enabled_when_text_present(qtbot, i18n, config):
+def test_main_window_has_voice_panel(qtbot, i18n, config):
+    """F2 fix: MainWindow must compose voice_panel per spec §4.1."""
     win = MainWindow(i18n=i18n, config=config)
     qtbot.addWidget(win)
-    win._text_edit.setPlainText("Test speech")
-    assert win._preview_btn.isEnabled()
-    assert win._export_btn.isEnabled()
+    assert win._voice_panel is not None
 
-def test_mainwindow_text_cleared_disables_buttons(qtbot, i18n, config):
+def test_main_window_has_text_panel(qtbot, i18n, config):
+    """F2 fix: MainWindow must compose text_panel per spec §4.1."""
     win = MainWindow(i18n=i18n, config=config)
     qtbot.addWidget(win)
-    win._text_edit.setPlainText("Test speech")
-    win._text_edit.clear()
-    assert not win._preview_btn.isEnabled()
-    assert not win._export_btn.isEnabled()
+    assert win._text_panel is not None
+
+def test_main_window_default_size(qtbot, i18n, config):
+    win = MainWindow(i18n=i18n, config=config)
+    qtbot.addWidget(win)
+    assert win.minimumWidth() >= 700
+    assert win.minimumHeight() >= 500
+
+def test_main_window_has_toolbar(qtbot, i18n, config):
+    win = MainWindow(i18n=i18n, config=config)
+    qtbot.addWidget(win)
+    toolbars = win.findChildren(type(win._toolbar))
+    assert len(toolbars) >= 1
+
+def test_main_window_language_toggle(qtbot, i18n, config):
+    win = MainWindow(i18n=i18n, config=config)
+    qtbot.addWidget(win)
+    assert i18n.current_language == "zh-TW"
+
+    win._toggle_language()
+    assert i18n.current_language == "en-US"
 ```
 
-- [ ] **Step 5: Run tests to verify they fail**
+- [ ] **Step 10: Run MainWindow tests to verify they fail**
 
 Run: `/Users/cheerc/.local/bin/uv run --extra dev pytest tests/test_ui/test_main_window.py -v`
 Expected: FAIL (No module named `src.ui.main_window`)
 
-- [ ] **Step 6: Implement `src/ui/main_window.py`**
+- [ ] **Step 11: Implement `src/ui/main_window.py` (Composes left-right split)**
 
 Create `src/ui/main_window.py`:
 ```python
-"""Main window: toolbar settings action, voice selectors, input area, and export controls."""
+"""Main window: left-right split layout composing voice_panel + text_panel.
+
+Spec §3.1: Left-Right Split (~30% left / ~70% right).
+Spec §4.1: Composes voice_panel + text_panel.
+"""
 
 import asyncio
 import tempfile
 from pathlib import Path
-from PySide6.QtCore import QThread, Signal, Qt
+
+from PySide6.QtCore import Signal, QThread
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
-    QComboBox, QLineEdit, QPushButton, QStatusBar, QMessageBox,
-    QToolBar, QLabel
+    QMainWindow, QWidget, QHBoxLayout, QToolBar, QStatusBar, QMessageBox,
 )
+
 from src.config_manager import ConfigManager
 from src.i18n import I18n
 from src.tts_engine import TTSEngine, make_output_filename
 from src.audio_player import AudioPlayer, PlayerState
+from src.ui.voice_panel import VoicePanel
+from src.ui.text_panel import TextPanel
+
 
 class TTSWorker(QThread):
     """QThread to handle edge-tts asynchronous speech generation."""
@@ -314,8 +816,9 @@ class TTSWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+
 class MainWindow(QMainWindow):
-    """Main window of simple-edge-tts."""
+    """Main window of simple-edge-tts with left-right split layout."""
     language_changed = Signal(str)
 
     def __init__(self, i18n: I18n, config: ConfigManager, parent=None):
@@ -324,79 +827,43 @@ class MainWindow(QMainWindow):
         self._config = config
         self._player = AudioPlayer(self)
         self._tts_worker = None
-        self._all_voices = []
 
         self._setup_ui()
         self._connect_signals()
-        self._load_voices()
-        self._restore_state()
 
     def _setup_ui(self):
         self.setWindowTitle(self._i18n.t("app_title"))
         self.setMinimumSize(700, 500)
-        self.resize(self._config.get("window_geometry")["w"], self._config.get("window_geometry")["h"])
+        geom = self._config.get("window_geometry")
+        self.resize(geom["w"], geom["h"])
 
         # Toolbar
         self._toolbar = QToolBar("Main Toolbar", self)
         self._toolbar.setMovable(False)
         self.addToolBar(self._toolbar)
 
-        # Toolbar Settings Action
         self._settings_action = self._toolbar.addAction(self._i18n.t("settings"))
         self._settings_action.triggered.connect(self._on_open_settings)
 
         self._toolbar.addSeparator()
 
-        # Language quick toggle action
         self._lang_action = self._toolbar.addAction(self._i18n.t("lang_toggle"))
         self._lang_action.triggered.connect(self._toggle_language)
 
-        # Central Widget Layout
+        # Central Widget — Left-Right Split (F1 fix: QHBoxLayout)
         central = QWidget(self)
         self.setCentralWidget(central)
-        main_layout = QVBoxLayout(central)
+        main_layout = QHBoxLayout(central)
         main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        main_layout.setSpacing(16)
 
-        # Voice Selector Row
-        voice_layout = QHBoxLayout()
-        self._voice_label = QLabel(self._i18n.t("voice_selection"))
-        voice_layout.addWidget(self._voice_label)
+        # Left panel (~30%): Voice Panel
+        self._voice_panel = VoicePanel(i18n=self._i18n, config=self._config)
+        main_layout.addWidget(self._voice_panel, stretch=3)
 
-        self._voice_search = QLineEdit()
-        self._voice_search.setPlaceholderText(self._i18n.t("search_voice"))
-        self._voice_search.textChanged.connect(self._filter_voices)
-        voice_layout.addWidget(self._voice_search)
-
-        self._voice_combo = QComboBox()
-        self._voice_combo.currentTextChanged.connect(self._on_voice_changed)
-        voice_layout.addWidget(self._voice_combo)
-        voice_layout.setStretch(2, 2)
-        main_layout.addLayout(voice_layout)
-
-        # Text input editor
-        self._text_edit = QTextEdit()
-        self._text_edit.setPlaceholderText(self._i18n.t("text_placeholder"))
-        self._text_edit.textChanged.connect(self._on_text_changed)
-        main_layout.addWidget(self._text_edit)
-
-        # Button Row
-        btn_layout = QHBoxLayout()
-        self._preview_btn = QPushButton(f"▶ {self._i18n.t('preview')}")
-        self._preview_btn.setEnabled(False)
-        self._preview_btn.clicked.connect(self._on_preview)
-        btn_layout.addWidget(self._preview_btn)
-
-        self._stop_btn = QPushButton(f"⏹ {self._i18n.t('stop')}")
-        self._stop_btn.setEnabled(False)
-        self._stop_btn.clicked.connect(self._on_stop)
-        btn_layout.addWidget(self._stop_btn)
-
-        self._export_btn = QPushButton(f"💾 {self._i18n.t('export_mp3')}")
-        self._export_btn.setEnabled(False)
-        self._export_btn.clicked.connect(self._on_export)
-        btn_layout.addWidget(self._export_btn)
-        main_layout.addLayout(btn_layout)
+        # Right panel (~70%): Text Panel
+        self._text_panel = TextPanel(i18n=self._i18n)
+        main_layout.addWidget(self._text_panel, stretch=7)
 
         # Status Bar
         self.setStatusBar(QStatusBar())
@@ -405,71 +872,30 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         self._player.state_changed.connect(self._on_player_state_changed)
         self._player.playback_finished.connect(
-            lambda: self.statusBar().showMessage(self._i18n.t("status_ready"))
+            lambda: self._update_status(self._i18n.t("status_ready"))
         )
+        self._text_panel.preview_requested.connect(self._on_preview)
+        self._text_panel.export_requested.connect(self._on_export)
+        self._text_panel.stop_requested.connect(self._on_stop)
 
-    def _load_voices(self):
-        try:
-            engine = TTSEngine()
-            grouped = engine.get_grouped_voices_sync()
-            self._voice_combo.clear()
-            self._all_voices = []
-
-            # Populate combo box with grouping tags
-            for group, voices in grouped.items():
-                group_name = self._i18n.t(f"voice_group_{group.lower().replace('-', '_')}")
-                if "voice_group" in group_name: # fallback
-                    group_name = group
-
-                for v in voices:
-                    name = v["ShortName"]
-                    gender = v.get("Gender", "")
-                    label = f"{name} ({gender}) - {group_name}"
-                    self._all_voices.append({"label": label, "name": name, "raw": v})
-                    self._voice_combo.addItem(label, name)
-        except Exception as e:
-            self.statusBar().showMessage(f"Load voices failed: {e}")
-
-    def _restore_state(self):
-        last_voice = self._config.get("last_voice")
-        if last_voice:
-            idx = self._voice_combo.findData(last_voice)
-            if idx >= 0:
-                self._voice_combo.setCurrentIndex(idx)
-
-    def _filter_voices(self, search_text: str):
-        self._voice_combo.clear()
-        search_text = search_text.lower()
-        for item in self._all_voices:
-            if search_text in item["label"].lower() or search_text in item["name"].lower():
-                self._voice_combo.addItem(item["label"], item["name"])
-
-    def _on_text_changed(self):
-        has_text = bool(self._text_edit.toPlainText().strip())
-        self._preview_btn.setEnabled(has_text and self._player.state != PlayerState.PLAYING)
-        self._export_btn.setEnabled(has_text and self._player.state != PlayerState.PLAYING)
-
-    def _on_voice_changed(self, text: str):
-        voice = self._voice_combo.currentData()
-        if voice:
-            self._config.set("last_voice", voice)
-            self._config.save()
+    def _update_status(self, message: str):
+        self.statusBar().showMessage(message)
+        self._text_panel.set_status(message)
 
     def _on_preview(self):
-        text = self._text_edit.toPlainText().strip()
-        voice = self._voice_combo.currentData()
+        text = self._text_panel.get_text()
+        voice = self._voice_panel.get_selected_voice()
         if not text or not voice:
             return
 
-        self.statusBar().showMessage(self._i18n.t("status_generating"))
-        self._preview_btn.setEnabled(False)
-        self._export_btn.setEnabled(False)
+        self._update_status(self._i18n.t("status_generating"))
+        self._text_panel.set_generating(True)
 
         tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
         tmp.close()
 
-        rate = self._config.get("rate")
-        pitch = self._config.get("pitch")
+        rate = self._voice_panel.get_rate()
+        pitch = self._voice_panel.get_pitch()
 
         self._tts_worker = TTSWorker(text, voice, tmp.name, rate, pitch)
         self._tts_worker.finished.connect(self._on_preview_ready)
@@ -477,12 +903,13 @@ class MainWindow(QMainWindow):
         self._tts_worker.start()
 
     def _on_preview_ready(self, file_path: str):
-        self.statusBar().showMessage(self._i18n.t("status_playing"))
+        self._update_status(self._i18n.t("status_playing"))
+        self._text_panel.set_generating(False)
         self._player.play(file_path)
 
     def _on_export(self):
-        text = self._text_edit.toPlainText().strip()
-        voice = self._voice_combo.currentData()
+        text = self._text_panel.get_text()
+        voice = self._voice_panel.get_selected_voice()
         if not text or not voice:
             return
 
@@ -497,12 +924,11 @@ class MainWindow(QMainWindow):
         filename = make_output_filename(text)
         output_path = output_dir / filename
 
-        self.statusBar().showMessage(self._i18n.t("status_generating"))
-        self._preview_btn.setEnabled(False)
-        self._export_btn.setEnabled(False)
+        self._update_status(self._i18n.t("status_generating"))
+        self._text_panel.set_generating(True)
 
-        rate = self._config.get("rate")
-        pitch = self._config.get("pitch")
+        rate = self._voice_panel.get_rate()
+        pitch = self._voice_panel.get_pitch()
 
         self._tts_worker = TTSWorker(text, voice, str(output_path), rate, pitch)
         self._tts_worker.finished.connect(self._on_export_ready)
@@ -511,21 +937,20 @@ class MainWindow(QMainWindow):
 
     def _on_export_ready(self, file_path: str):
         filename = Path(file_path).name
-        self.statusBar().showMessage(self._i18n.t("status_exported", filename=filename))
-        self._on_text_changed()
+        self._update_status(self._i18n.t("status_exported", filename=filename))
+        self._text_panel.set_generating(False)
 
     def _on_tts_error(self, error_msg: str):
         QMessageBox.critical(self, "TTS Error", self._i18n.t("error_export_failed", error=error_msg))
-        self.statusBar().showMessage(self._i18n.t("status_ready"))
-        self._on_text_changed()
+        self._update_status(self._i18n.t("status_ready"))
+        self._text_panel.set_generating(False)
 
     def _on_stop(self):
         self._player.stop()
 
     def _on_player_state_changed(self, state: PlayerState):
         is_playing = state == PlayerState.PLAYING
-        self._stop_btn.setEnabled(is_playing)
-        self._on_text_changed()
+        self._text_panel.set_playing(is_playing)
 
     def _on_open_settings(self):
         # Implementation in Task 8
@@ -547,29 +972,26 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self._i18n.t("app_title"))
         self._settings_action.setText(self._i18n.t("settings"))
         self._lang_action.setText(self._i18n.t("lang_toggle"))
-        self._voice_label.setText(self._i18n.t("voice_selection"))
-        self._voice_search.setPlaceholderText(self._i18n.t("search_voice"))
-        self._text_edit.setPlaceholderText(self._i18n.t("text_placeholder"))
-        self._preview_btn.setText(f"▶ {self._i18n.t('preview')}")
-        self._stop_btn.setText(f"⏹ {self._i18n.t('stop')}")
-        self._export_btn.setText(f"💾 {self._i18n.t('export_mp3')}")
+        self._voice_panel.update_ui_texts()
+        self._text_panel.update_ui_texts()
         self.statusBar().showMessage(self._i18n.t("status_ready"))
-        self._load_voices()
 
     def closeEvent(self, event):
-        # Save window geometry
         geom = self.geometry()
-        self._config.set("window_geometry", {"x": geom.x(), "y": geom.y(), "w": geom.width(), "h": geom.height()})
+        self._config.set("window_geometry", {
+            "x": geom.x(), "y": geom.y(),
+            "w": geom.width(), "h": geom.height()
+        })
         self._config.save()
         super().closeEvent(event)
 ```
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [ ] **Step 12: Run all T7 tests**
 
-Run: `/Users/cheerc/.local/bin/uv run --extra dev pytest tests/test_ui/test_main_window.py -v`
+Run: `/Users/cheerc/.local/bin/uv run --extra dev pytest tests/test_ui/test_voice_panel.py tests/test_ui/test_text_panel.py tests/test_ui/test_main_window.py -v`
 Expected: PASS
 
-- [ ] **Step 8: Update `src/app.py`**
+- [ ] **Step 13: Update `src/app.py`**
 
 Modify `src/app.py`:
 ```python
@@ -595,7 +1017,7 @@ def create_app(argv=None) -> QApplication:
     return app
 ```
 
-- [ ] **Step 9: Update `src/main.py`**
+- [ ] **Step 14: Update `src/main.py`**
 
 Modify `src/main.py`:
 ```python
@@ -622,11 +1044,11 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 15: Commit**
 
 ```bash
-git add src/ui/__init__.py src/ui/theme.py src/ui/main_window.py src/app.py src/main.py src/resources/translations/ tests/test_ui/test_main_window.py
-git commit -m "feat: main window QMainWindow setup with follower theme and toolbar integration"
+git add src/ui/ src/app.py src/main.py src/resources/translations/ tests/test_ui/
+git commit -m "feat: main window with left-right split layout, voice_panel, text_panel (spec §3.1/§4.1)"
 ```
 
 ---
@@ -638,15 +1060,16 @@ git commit -m "feat: main window QMainWindow setup with follower theme and toolb
 - Create: `tests/test_ui/test_settings_dialog.py`
 - Modify: `src/ui/main_window.py`
 
+**Scope note:** Since rate/pitch sliders and output dir picker are now in `voice_panel.py` (matching spec §3.1 layout), the Settings Dialog is simplified to language switching only.
+
 - [ ] **Step 1: Write failing tests for SettingsDialog**
 
 Create `tests/test_ui/test_settings_dialog.py`:
 ```python
-"""Tests for SettingsDialog — sliders, output folder selection, language changing."""
+"""Tests for SettingsDialog — language switching."""
 
 from pathlib import Path
 import pytest
-from PySide6.QtCore import Qt
 from src.ui.settings_dialog import SettingsDialog
 from src.i18n import I18n
 from src.config_manager import ConfigManager
@@ -661,34 +1084,26 @@ def i18n():
 def config(tmp_path):
     return ConfigManager(config_dir=tmp_path)
 
-def test_settings_dialog_initializes_with_config(qtbot, i18n, config):
-    config.set("rate", "+10%")
-    config.set("pitch", "-5Hz")
+def test_settings_dialog_initializes_with_current_language(qtbot, i18n, config):
+    dialog = SettingsDialog(i18n=i18n, config=config)
+    qtbot.addWidget(dialog)
+    assert dialog._lang_combo.currentData() == "zh-TW"
+
+def test_settings_dialog_save_changes_language(qtbot, i18n, config):
     dialog = SettingsDialog(i18n=i18n, config=config)
     qtbot.addWidget(dialog)
 
-    assert dialog._rate_slider.value() == 10
-    assert dialog._pitch_slider.value() == -5
-
-def test_settings_dialog_slider_resets_on_double_click(qtbot, i18n, config):
-    dialog = SettingsDialog(i18n=i18n, config=config)
-    qtbot.addWidget(dialog)
-
-    dialog._rate_slider.setValue(20)
-    # Simulate double click or direct trigger of event handler
-    dialog._on_rate_slider_double_clicked(None)
-    assert dialog._rate_slider.value() == 0
-
-def test_settings_dialog_save_persists_config(qtbot, i18n, config):
-    dialog = SettingsDialog(i18n=i18n, config=config)
-    qtbot.addWidget(dialog)
-
-    dialog._rate_slider.setValue(30)
-    dialog._pitch_slider.setValue(15)
+    # Switch to English
+    idx = dialog._lang_combo.findData("en-US")
+    dialog._lang_combo.setCurrentIndex(idx)
     dialog._save_config()
 
-    assert config.get("rate") == "+30%"
-    assert config.get("pitch") == "+15Hz"
+    assert config.get("language") == "en-US"
+
+def test_settings_dialog_has_save_cancel_buttons(qtbot, i18n, config):
+    dialog = SettingsDialog(i18n=i18n, config=config)
+    qtbot.addWidget(dialog)
+    assert dialog._btn_box is not None
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -700,85 +1115,35 @@ Expected: FAIL (No module named `src.ui.settings_dialog`)
 
 Create `src/ui/settings_dialog.py`:
 ```python
-"""Settings Dialog: Sliders for rate and pitch, output dir picker, and language switching."""
+"""Settings Dialog: language switching.
 
-from pathlib import Path
-from PySide6.QtCore import Qt
+Rate/pitch sliders and output dir are in voice_panel.py per spec §3.1 layout.
+"""
+
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
-    QPushButton, QFileDialog, QComboBox, QDialogButtonBox
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QComboBox, QDialogButtonBox,
 )
 from src.config_manager import ConfigManager
 from src.i18n import I18n
-from src.tts_engine import format_rate, format_pitch
 
-class DoubleClickSlider(QSlider):
-    """Custom slider that catches double clicks to reset value to 0."""
-    def __init__(self, orientation, parent=None):
-        super().__init__(orientation, parent)
-
-    def mouseDoubleClickEvent(self, event):
-        self.setValue(0)
-        super().mouseDoubleClickEvent(event)
 
 class SettingsDialog(QDialog):
-    """Modal dialog for rate/pitch settings, directory picking, and language choice."""
+    """Modal dialog for language selection."""
     def __init__(self, i18n: I18n, config: ConfigManager, parent=None):
         super().__init__(parent)
         self._i18n = i18n
         self._config = config
-        self._output_dir = self._config.get("output_dir")
         self._setup_ui()
-        self._load_config()
 
     def _setup_ui(self):
         self.setWindowTitle(self._i18n.t("settings_title"))
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(350)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(16)
 
-        # Rate Slider Block
-        rate_layout = QVBoxLayout()
-        self._rate_label = QLabel(self._i18n.t("rate"))
-        rate_layout.addWidget(self._rate_label)
-
-        self._rate_slider = DoubleClickSlider(Qt.Orientation.Horizontal)
-        self._rate_slider.setRange(-50, 100)
-        self._rate_slider.setValue(0)
-        self._rate_slider.valueChanged.connect(self._on_rate_changed)
-        rate_layout.addWidget(self._rate_slider)
-        layout.addLayout(rate_layout)
-
-        # Pitch Slider Block
-        pitch_layout = QVBoxLayout()
-        self._pitch_label = QLabel(self._i18n.t("pitch"))
-        pitch_layout.addWidget(self._pitch_label)
-
-        self._pitch_slider = DoubleClickSlider(Qt.Orientation.Horizontal)
-        self._pitch_slider.setRange(-50, 50)
-        self._pitch_slider.setValue(0)
-        self._pitch_slider.valueChanged.connect(self._on_pitch_changed)
-        pitch_layout.addWidget(self._pitch_slider)
-        layout.addLayout(pitch_layout)
-
-        # Output Dir Block
-        output_layout = QVBoxLayout()
-        self._output_title = QLabel(self._i18n.t("output_settings"))
-        output_layout.addWidget(self._output_title)
-
-        dir_row = QHBoxLayout()
-        self._dir_path_label = QLabel(self._output_dir)
-        self._dir_path_label.setWordWrap(True)
-        dir_row.addWidget(self._dir_path_label)
-
-        self._dir_btn = QPushButton(self._i18n.t("choose_folder"))
-        self._dir_btn.clicked.connect(self._choose_folder)
-        dir_row.addWidget(self._dir_btn)
-        output_layout.addLayout(dir_row)
-        layout.addLayout(output_layout)
-
-        # Language dropdown choice
+        # Language dropdown
         lang_layout = QHBoxLayout()
         self._lang_label = QLabel(self._i18n.t("language"))
         lang_layout.addWidget(self._lang_label)
@@ -786,6 +1151,13 @@ class SettingsDialog(QDialog):
         self._lang_combo = QComboBox()
         self._lang_combo.addItem("繁體中文", "zh-TW")
         self._lang_combo.addItem("English", "en-US")
+
+        # Set current language
+        lang = self._config.get("language")
+        idx = self._lang_combo.findData(lang)
+        if idx >= 0:
+            self._lang_combo.setCurrentIndex(idx)
+
         lang_layout.addWidget(self._lang_combo)
         layout.addLayout(lang_layout)
 
@@ -793,81 +1165,32 @@ class SettingsDialog(QDialog):
         self._btn_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
-        # Update save/cancel button labels manually for translation support
         self._btn_box.button(QDialogButtonBox.StandardButton.Save).setText(self._i18n.t("save"))
         self._btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(self._i18n.t("cancel"))
-
         self._btn_box.accepted.connect(self._on_save_clicked)
         self._btn_box.rejected.connect(self.reject)
         layout.addWidget(self._btn_box)
-
-    def _load_config(self):
-        # Rate
-        rate_str = self._config.get("rate")
-        try:
-            val = int(rate_str.replace("%", "").replace("+", ""))
-            self._rate_slider.setValue(val)
-        except ValueError:
-            self._rate_slider.setValue(0)
-
-        # Pitch
-        pitch_str = self._config.get("pitch")
-        try:
-            val = int(pitch_str.replace("Hz", "").replace("+", ""))
-            self._pitch_slider.setValue(val)
-        except ValueError:
-            self._pitch_slider.setValue(0)
-
-        # Language
-        lang = self._config.get("language")
-        idx = self._lang_combo.findData(lang)
-        if idx >= 0:
-            self._lang_combo.setCurrentIndex(idx)
-
-    def _on_rate_changed(self, val: int):
-        sign = "+" if val >= 0 else ""
-        self._rate_label.setText(f"{self._i18n.t('rate')}: {sign}{val}%")
-
-    def _on_pitch_changed(self, val: int):
-        sign = "+" if val >= 0 else ""
-        self._pitch_label.setText(f"{self._i18n.t('pitch')}: {sign}{val}Hz")
-
-    def _choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, self._i18n.t("choose_folder"), self._output_dir)
-        if folder:
-            self._output_dir = folder
-            self._dir_path_label.setText(folder)
-
-    def _on_rate_slider_double_clicked(self, event):
-        self._rate_slider.setValue(0)
 
     def _on_save_clicked(self):
         self._save_config()
         self.accept()
 
     def _save_config(self):
-        self._config.set("rate", format_rate(self._rate_slider.value()))
-        self._config.set("pitch", format_pitch(self._pitch_slider.value()))
-        self._config.set("output_dir", self._output_dir)
         self._config.set("language", self._lang_combo.currentData())
         self._config.save()
 ```
 
 - [ ] **Step 4: Integrate SettingsDialog with MainWindow**
 
-Modify `_on_open_settings` in `src/ui/main_window.py` to trigger the dialog and reload settings:
+Modify `_on_open_settings` in `src/ui/main_window.py`:
 ```python
     def _on_open_settings(self):
         from src.ui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self._i18n, self._config, self)
         if dialog.exec() == SettingsDialog.DialogCode.Accepted:
-            # Sync main window state/texts if language changed
             config_lang = self._config.get("language")
             if config_lang != self._i18n.current_language:
                 self.set_language(config_lang)
-            else:
-                # Reload voices/texts to ensure they stay up-to-date
-                self.statusBar().showMessage(self._i18n.t("status_ready"))
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -879,7 +1202,7 @@ Expected: PASS
 
 ```bash
 git add src/ui/settings_dialog.py src/ui/main_window.py tests/test_ui/test_settings_dialog.py
-git commit -m "feat: settings dialog with double-click reset sliders and output dir picker"
+git commit -m "feat: settings dialog with language switching"
 ```
 
 ---
@@ -919,9 +1242,18 @@ def test_system_tray_creation(qtbot, i18n, config):
     win = MainWindow(i18n=i18n, config=config)
     qtbot.addWidget(win)
 
-    tray_mgr = SystemTrayManager(win)
+    tray_mgr = SystemTrayManager(win, i18n)
     assert tray_mgr._tray_icon is not None
-    assert tray_mgr._tray_icon.toolTip() == win._i18n.t("app_title")
+    assert tray_mgr._tray_icon.toolTip() == i18n.t("app_title")
+
+def test_system_tray_is_visible_method(qtbot, i18n, config):
+    """F4 fix: use public is_visible() instead of accessing private _tray_icon."""
+    win = MainWindow(i18n=i18n, config=config)
+    qtbot.addWidget(win)
+
+    tray_mgr = SystemTrayManager(win, i18n)
+    # is_visible should be callable (no direct _tray_icon access needed externally)
+    assert hasattr(tray_mgr, 'is_visible')
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -933,20 +1265,29 @@ Expected: FAIL (No module named `src.ui.system_tray`)
 
 Create `src/ui/system_tray.py`:
 ```python
-"""System tray icon manager. Enables minimize-to-tray and notifications."""
+"""System tray icon manager. Enables minimize-to-tray and notifications.
+
+F3 fix: all imports at module top.
+F4 fix: public is_visible() method instead of exposing _tray_icon.
+"""
+
+from pathlib import Path
 
 from PySide6.QtCore import QObject
 from PySide6.QtGui import QIcon, QAction
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QApplication, QStyle
 
+from src.i18n import I18n
+
+
 class SystemTrayManager(QObject):
     """Manages QSystemTrayIcon lifecycle and interactions."""
-    def __init__(self, main_window, parent=None):
+    def __init__(self, main_window, i18n: I18n, parent=None):
         super().__init__(parent)
         self._main_window = main_window
-        self._i18n = main_window._i18n
+        self._i18n = i18n
 
-        # Setup standard system fallback icon if resources are missing
+        # Setup icon
         icon_path = Path(__file__).parent.parent / "resources" / "icons" / "icon.png"
         if icon_path.exists():
             icon = QIcon(str(icon_path))
@@ -997,6 +1338,10 @@ class SystemTrayManager(QObject):
         self._tray_icon.hide()
         QApplication.quit()
 
+    def is_visible(self) -> bool:
+        """F4 fix: public method to check tray visibility."""
+        return self._tray_icon.isVisible()
+
     def show_notification(self, title: str, message: str):
         self._tray_icon.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 3000)
 
@@ -1005,45 +1350,46 @@ class SystemTrayManager(QObject):
         self._show_action.setText(self._i18n.t("show_main"))
         self._settings_action.setText(self._i18n.t("settings"))
         self._exit_action.setText(self._i18n.t("exit"))
-
-from pathlib import Path
 ```
 
 - [ ] **Step 4: Integrate SystemTrayManager into MainWindow**
 
-Modify `src/ui/main_window.py` to hold a reference to `SystemTrayManager` and override `closeEvent` for minimize-to-tray:
+Modify `src/ui/main_window.py`:
 
-Modify imports in `src/ui/main_window.py`:
+Add import at top:
 ```python
 from src.ui.system_tray import SystemTrayManager
 ```
 
-Add initialization in `__init__` of `MainWindow`:
+Add initialization in `__init__` of `MainWindow` (after `_connect_signals()`):
 ```python
-        self._tray_manager = SystemTrayManager(self)
+        self._tray_manager = SystemTrayManager(self, self._i18n)
 ```
 
-Modify `_on_export_ready` in `src/ui/main_window.py` to trigger notification:
+Modify `_on_export_ready` to trigger notification:
 ```python
     def _on_export_ready(self, file_path: str):
         filename = Path(file_path).name
-        self.statusBar().showMessage(self._i18n.t("status_exported", filename=filename))
+        self._update_status(self._i18n.t("status_exported", filename=filename))
         self._tray_manager.show_notification(
             self._i18n.t("export_success_title"),
             self._i18n.t("export_success_msg", path=file_path)
         )
-        self._on_text_changed()
+        self._text_panel.set_generating(False)
 ```
 
-Modify `closeEvent` to hide the window instead of exiting:
+Modify `closeEvent` to use public `is_visible()` (F4 fix):
 ```python
     def closeEvent(self, event):
-        if self._tray_manager._tray_icon.isVisible():
+        if self._tray_manager.is_visible():
             self.hide()
             event.ignore()
         else:
             geom = self.geometry()
-            self._config.set("window_geometry", {"x": geom.x(), "y": geom.y(), "w": geom.width(), "h": geom.height()})
+            self._config.set("window_geometry", {
+                "x": geom.x(), "y": geom.y(),
+                "w": geom.width(), "h": geom.height()
+            })
             self._config.save()
             super().closeEvent(event)
 ```
@@ -1051,11 +1397,11 @@ Modify `closeEvent` to hide the window instead of exiting:
 - [ ] **Step 5: Run all tests to verify they pass**
 
 Run: `/Users/cheerc/.local/bin/uv run --extra dev pytest -v`
-Expected: 56 passed (51 existing + 5 new UI tests)
+Expected: All previous tests + new UI tests pass
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/ui/system_tray.py src/ui/main_window.py tests/test_ui/test_system_tray.py
-git commit -m "feat: system tray minimize-to-tray behavior and export completion notifications"
+git commit -m "feat: system tray with minimize-to-tray and export notifications"
 ```
