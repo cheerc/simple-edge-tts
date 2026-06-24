@@ -37,3 +37,6 @@ Thumbs.db
 # Graphify (knowledge graph tool output)
 graphify-out/
 .graphify*
+
+# Frontend
+frontend/node_modules/
