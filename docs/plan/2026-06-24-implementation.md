@@ -64,7 +64,7 @@
 ```toml
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "simple-edge-tts"
@@ -2168,7 +2168,7 @@ git commit -m "ci: add PR gate workflow, release build, PR template, gitleaks ho
 
 ---
 
-## Task 14: Release Skill (AgEnD)
+## Task 13: Release Skill (AgEnD)
 
 **Files:**
 - Create: `/Users/cheerc/agend-customization/team-skills/simple-edge-tts/set-release/SKILL.md`
@@ -2221,7 +2221,7 @@ git push
 
 ---
 
-## Task 15: Manual Smoke Test
+## Task 14: Manual Smoke Test
 
 - [ ] **Step 1: Run full workflow check**
 
