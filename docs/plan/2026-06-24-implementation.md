@@ -2438,6 +2438,9 @@ on:
       - 'docs/**'
   workflow_dispatch:
 
+permissions:
+  contents: read                  # 最小權限：CI 只需讀
+
 concurrency:
   group: pre-merge-checks-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -2532,8 +2535,8 @@ jobs:
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-      - uses: actions/download-artifact@v4
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/download-artifact@v4  # TODO: pin to commit SHA for production
+      - uses: softprops/action-gh-release@v2  # TODO: pin to commit SHA for production
         with:
           body: |
             ## Changes
