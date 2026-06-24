@@ -17,6 +17,7 @@ from src.tts_engine import TTSEngine, format_rate, format_pitch, make_output_fil
 from src.audio_player import AudioPlayer, PlayerState
 from src.ui.voice_panel import VoicePanel
 from src.ui.text_panel import TextPanel
+from src.ui.settings_dialog import SettingsDialog
 
 
 class TTSWorker(QThread):
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
         self._config = config
         self._player = AudioPlayer(self)
         self._worker = None
+        self._tray = None  # Set by main.py after SystemTrayManager creation
         self._setup_ui()
         self._connect_signals()
         self._restore_state()
@@ -193,11 +195,25 @@ class MainWindow(QMainWindow):
         self.language_changed.emit(new_lang)
 
     def _on_open_settings(self):
-        """Open settings dialog. Placeholder for SystemTrayManager integration."""
-        pass
+        """Open settings dialog and apply language change if accepted."""
+        old_lang = self._i18n.current_language
+        dialog = SettingsDialog(self._i18n, self._config, parent=self)
+        if dialog.exec():
+            new_lang = self._config.get("language")
+            if new_lang != old_lang:
+                self._i18n.set_language(new_lang)
+                self._lang_btn.setText(self._i18n.t("lang_toggle"))
+                self.setWindowTitle(self._i18n.t("app_title"))
+                self.statusBar().showMessage(self._i18n.t("status_ready"))
+                self.language_changed.emit(new_lang)
 
     def closeEvent(self, event):
-        self._config.set("rate", format_rate(self._voice_panel.rate_value()))
-        self._config.set("pitch", format_pitch(self._voice_panel.pitch_value()))
-        self._config.save()
-        super().closeEvent(event)
+        if self._tray and self._tray.is_visible():
+            # Minimize to tray instead of quitting
+            self.hide()
+            event.ignore()
+        else:
+            self._config.set("rate", format_rate(self._voice_panel.rate_value()))
+            self._config.set("pitch", format_pitch(self._voice_panel.pitch_value()))
+            self._config.save()
+            super().closeEvent(event)
