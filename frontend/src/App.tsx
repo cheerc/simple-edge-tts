@@ -1,12 +1,203 @@
+/**
+ * Main application layout — 2-column wide layout.
+ *
+ * Left panel (40%): VoiceSelector
+ * Right panel (60%): TextEditor + ActionBar
+ * Header spans full width, Toast system at root.
+ *
+ * Per design spec §2.1 layout.
+ * Ref: T18 Plan §9 — App Layout
+ */
+
+import { useState, useCallback } from "react";
+
+import { Header } from "./components/Header";
+import { VoiceSelector } from "./components/VoiceSelector";
+import { TextEditor } from "./components/TextEditor";
+import { ActionBar } from "./components/ActionBar";
+import { Toast } from "./components/Toast";
+import { useApi } from "./hooks/useApi";
+import { useToast } from "./hooks/useToast";
+
 function App() {
+  const api = useApi();
+  const { toasts, addToast, removeToast } = useToast();
+
+  // Lifted state
+  const [selectedVoice, setSelectedVoice] = useState("zh-TW-HsiaoChenNeural");
+  const [text, setText] = useState("");
+  const [speed, setSpeed] = useState(1.0);
+  const [speaking, setSpeaking] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Convert speed multiplier to API percentage: (multiplier - 1.0) × 100
+  const speedToRate = useCallback((multiplier: number): number => {
+    return Math.round((multiplier - 1.0) * 100);
+  }, []);
+
+  const handleSpeak = useCallback(async () => {
+    if (!text.trim() || !api.ready) return;
+
+    setSpeaking(true);
+    try {
+      const rate = speedToRate(speed);
+      const result = await api.generateTTS(text, selectedVoice, rate, 0);
+
+      if (result.error) {
+        addToast(result.error, "error");
+      } else if (result.path) {
+        await api.playAudio(result.path);
+        addToast("Playing audio", "success");
+      }
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : "TTS generation failed", "error");
+    } finally {
+      setSpeaking(false);
+    }
+  }, [text, selectedVoice, speed, api, addToast, speedToRate]);
+
+  const handleSave = useCallback(async () => {
+    if (!text.trim() || !api.ready) return;
+
+    setSaving(true);
+    try {
+      const rate = speedToRate(speed);
+      const result = await api.generateTTS(text, selectedVoice, rate, 0);
+
+      if (result.error) {
+        addToast(result.error, "error");
+      } else if (result.path) {
+        addToast(`Saved to ${result.path}`, "success");
+      }
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : "Save failed", "error");
+    } finally {
+      setSaving(false);
+    }
+  }, [text, selectedVoice, speed, api, addToast, speedToRate]);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
-      <div className="text-center space-y-4">
-        <h1 className="text-4xl font-bold">Simple Edge TTS</h1>
-        <p className="text-muted-foreground">Frontend scaffold — React + Tailwind + shadcn/ui</p>
+    <div
+      className="flex flex-col min-h-screen"
+      style={{
+        background: "var(--background)",
+        padding: "var(--space-8)",
+      }}
+    >
+      {/* Header — full width */}
+      <Header />
+
+      {/* Main content — 2-column layout */}
+      <div
+        className="flex flex-1 gap-5 mt-5"
+        style={{ minHeight: 0 }}
+      >
+        {/* Left panel (40%) — Voice Selection */}
+        <div
+          className="flex flex-col"
+          style={{
+            width: "40%",
+            minWidth: 280,
+            background: "var(--color-surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-xl)",
+            boxShadow: "var(--shadow-card)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "var(--space-4) var(--space-5)",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <h2
+              style={{
+                fontSize: 16,
+                fontWeight: 600,
+                lineHeight: 1.4,
+                letterSpacing: "-0.1px",
+                color: "var(--color-text-primary)",
+                margin: 0,
+              }}
+            >
+              Voice Selection
+            </h2>
+          </div>
+          <VoiceSelector
+            api={api}
+            selectedVoice={selectedVoice}
+            onVoiceChange={setSelectedVoice}
+          />
+        </div>
+
+        {/* Right panel (60%) — Text Editor + Action Bar */}
+        <div
+          className="flex flex-col flex-1"
+          style={{
+            background: "var(--color-surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-xl)",
+            boxShadow: "var(--shadow-card)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "var(--space-4) var(--space-5)",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <h2
+              style={{
+                fontSize: 16,
+                fontWeight: 600,
+                lineHeight: 1.4,
+                letterSpacing: "-0.1px",
+                color: "var(--color-text-primary)",
+                margin: 0,
+              }}
+            >
+              Text Input
+            </h2>
+          </div>
+
+          <div
+            className="flex flex-col flex-1"
+            style={{ padding: "var(--space-5)" }}
+          >
+            <TextEditor text={text} onTextChange={setText} />
+          </div>
+
+          <ActionBar
+            speed={speed}
+            onSpeedChange={setSpeed}
+            onSpeak={handleSpeak}
+            onSave={handleSave}
+            speaking={speaking}
+            saving={saving}
+            disabled={!text.trim() || !api.ready}
+          />
+        </div>
       </div>
+
+      {/* Responsive: stack on narrow screens */}
+      <style>{`
+        @media (max-width: 999px) {
+          .flex.flex-1.gap-5.mt-5 {
+            flex-direction: column;
+          }
+          .flex.flex-1.gap-5.mt-5 > div:first-child {
+            width: 100% !important;
+            min-width: unset !important;
+          }
+        }
+      `}</style>
+
+      {/* Toast system */}
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
