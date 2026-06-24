@@ -1,6 +1,6 @@
 # Simple Edge TTS — UI Design Specification
 
-> **Status**: Draft — pending reviewer approval
+> **Status**: Draft v2 — addressing reviewer REJECTED findings (contrast, popover, radius-full)
 > **Decision**: d-11 (Light Cream + Coral + Wide, operator confirmed)
 > **Framework**: PyWebView + React (Vite + Tailwind CSS + shadcn/ui)
 > **Target**: Desktop app (macOS / Windows), fixed landscape window ~1200×750
@@ -17,16 +17,17 @@
 | `--color-surface` | `#ffffff` | Card / panel surfaces |
 | `--color-surface-hover` | `#f5f5f5` | Surface hover state |
 | `--color-surface-active` | `#eeeeee` | Surface pressed/active state |
-| `--color-accent` | `#ff6b4a` | Primary CTA, active indicators |
-| `--color-accent-hover` | `#ff5533` | Accent hover state |
-| `--color-accent-active` | `#e64d2e` | Accent pressed state |
+| `--color-accent` | `#cc4a35` | Primary CTA, active indicators (WCAG AA 4.57:1 with white) |
+| `--color-accent-hover` | `#b8422f` | Accent hover state (5.44:1) |
+| `--color-accent-active` | `#a53b2a` | Accent pressed state (6.44:1) |
 | `--color-accent-subtle` | `#fff0ec` | Accent background tint (badges, highlights) |
 | `--color-text-primary` | `#333333` | Primary body text |
 | `--color-text-secondary` | `#666666` | Secondary / helper text |
-| `--color-text-muted` | `#999999` | Placeholder, disabled text |
+| `--color-text-muted` | `#737373` | Placeholder, disabled text (WCAG AA 4.54:1 on cream) |
 | `--color-text-on-accent` | `#ffffff` | Text on accent-colored backgrounds |
 | `--color-border` | `#e5e5e5` | Default borders, dividers |
-| `--color-border-focus` | `#ff6b4a` | Focus ring color (= accent) |
+| `--color-border-focus` | `#cc4a35` | Focus ring color (= accent) |
+| `--color-overlay` | `rgba(0, 0, 0, 0.4)` | Modal overlay backdrop |
 | `--color-destructive` | `#dc2626` | Error / destructive actions |
 | `--color-destructive-text` | `#ffffff` | Text on destructive |
 | `--color-success` | `#16a34a` | Success indicators |
@@ -34,12 +35,15 @@
 | `--color-shadow` | `rgba(0, 0, 0, 0.08)` | Card shadow |
 | `--color-shadow-elevated` | `rgba(0, 0, 0, 0.12)` | Modal / dropdown shadow |
 
-**Contrast verification (WCAG AA 4.5:1)**:
-- `#333333` on `#fafafa` → 11.3:1 ✅
-- `#333333` on `#ffffff` → 12.6:1 ✅
-- `#666666` on `#ffffff` → 5.7:1 ✅
-- `#ffffff` on `#ff6b4a` → 3.2:1 ⚠️ (large text / icons only; body text uses `#333` on light)
-- `#ffffff` on `#e64d2e` → 4.0:1 ⚠️ (borderline; buttons use semibold 15px+ = large text threshold)
+**Contrast verification (WCAG AA 4.5:1, computed via relative luminance)**:
+- `#333333` on `#fafafa` → 12.10:1 ✅
+- `#333333` on `#ffffff` → 12.63:1 ✅
+- `#666666` on `#ffffff` → 5.74:1 ✅
+- `#737373` on `#ffffff` → 4.74:1 ✅
+- `#737373` on `#fafafa` → 4.54:1 ✅
+- `#ffffff` on `#cc4a35` → 4.57:1 ✅ (accent buttons, normal text)
+- `#ffffff` on `#b8422f` → 5.44:1 ✅ (accent hover)
+- `#ffffff` on `#a53b2a` → 6.44:1 ✅ (accent active)
 
 ### 1.2 Typography
 
@@ -57,7 +61,7 @@
 
 **Google Fonts import** (for PyWebView context):
 ```
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 ```
 
 ### 1.3 Spacing Scale (4px base grid)
@@ -92,7 +96,7 @@
 | `--shadow-sm` | `0 1px 3px rgba(0,0,0,0.05)` | Subtle elevation |
 | `--shadow-card` | `0 2px 12px rgba(0,0,0,0.08)` | Cards, panels |
 | `--shadow-elevated` | `0 8px 24px rgba(0,0,0,0.12)` | Modals, dropdowns |
-| `--shadow-focus` | `0 0 0 3px rgba(255,107,74,0.3)` | Focus ring |
+| `--shadow-focus` | `0 0 0 3px rgba(204,74,53,0.3)` | Focus ring |
 
 ### 1.6 Animation Tokens
 
@@ -196,7 +200,7 @@ This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
 | Background | `--color-accent` |
 | Text | `--color-text-on-accent`, `--text-body` weight 600 |
 | Border radius | `--radius-md` (8px) |
-| Padding | `10px 24px` |
+| Padding | `12px 24px` |
 | Min height | 40px |
 | Min width | 100px |
 | Hover | background → `--color-accent-hover` |
@@ -291,7 +295,7 @@ This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
 
 | Property | Value |
 |----------|-------|
-| Overlay | `rgba(0,0,0,0.4)`, blur 4px |
+| Overlay | `--color-overlay`, backdrop-filter: blur(4px) |
 | Modal width | 480px |
 | Modal background | `--color-surface` |
 | Border radius | `--radius-xl` |
@@ -308,7 +312,7 @@ This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
 | Property | Value |
 |----------|-------|
 | Position | bottom-center, 24px from bottom |
-| Background | `--color-text-primary` (#333) |
+| Background | `--color-text-primary` |
 | Text | white, `--text-body-sm` weight 500 |
 | Border radius | `--radius-md` |
 | Padding | `--space-3 --space-4` |
@@ -377,20 +381,20 @@ This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
       active: '#eeeeee',
     },
     accent: {
-      DEFAULT: '#ff6b4a',
-      hover: '#ff5533',
-      active: '#e64d2e',
+      DEFAULT: '#cc4a35',
+      hover: '#b8422f',
+      active: '#a53b2a',
       subtle: '#fff0ec',
     },
     text: {
       primary: '#333333',
       secondary: '#666666',
-      muted: '#999999',
+      muted: '#737373',
       'on-accent': '#ffffff',
     },
     border: {
       DEFAULT: '#e5e5e5',
-      focus: '#ff6b4a',
+      focus: '#cc4a35',
     },
     destructive: {
       DEFAULT: '#dc2626',
@@ -404,12 +408,13 @@ This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
     md: '8px',
     lg: '12px',
     xl: '16px',
+    full: '9999px',
   },
   boxShadow: {
     sm: '0 1px 3px rgba(0,0,0,0.05)',
     card: '0 2px 12px rgba(0,0,0,0.08)',
     elevated: '0 8px 24px rgba(0,0,0,0.12)',
-    focus: '0 0 0 3px rgba(255,107,74,0.3)',
+    focus: '0 0 0 3px rgba(204,74,53,0.3)',
   },
   fontFamily: {
     sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'SF Pro', 'Segoe UI', 'system-ui', 'sans-serif'],
@@ -454,7 +459,7 @@ Define all tokens as CSS custom properties in `frontend/src/index.css` for runti
 :root {
   --color-background: #fafafa;
   --color-surface: #ffffff;
-  --color-accent: #ff6b4a;
+  --color-accent: #cc4a35;
   /* ... all tokens from §1 ... */
 }
 ```
@@ -485,6 +490,8 @@ Map design tokens to shadcn/ui's CSS variable convention (`--background`, `--for
 | `--input` | `--color-border` |
 | `--ring` | `--color-accent` |
 | `--radius` | `--radius-lg` |
+| `--popover` | `--color-surface` |
+| `--popover-foreground` | `--color-text-primary` |
 
 ### 7.3 Component-to-Task Mapping
 
