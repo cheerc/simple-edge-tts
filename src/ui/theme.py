@@ -177,10 +177,12 @@ QLineEdit {
 
 def is_dark_mode() -> bool:
     """Detect whether the OS is in dark mode."""
-    hints = QApplication.instance().styleHints()
+    app = QApplication.instance()
+    assert isinstance(app, QApplication), "is_dark_mode() called before QApplication created"
+    hints = app.styleHints()
     if hasattr(hints, "colorScheme"):
         return hints.colorScheme() == Qt.ColorScheme.Dark
-    palette = QApplication.instance().palette()
+    palette = app.palette()
     return palette.color(QPalette.ColorRole.Window).lightness() < 128
 
 
