@@ -1,6 +1,6 @@
 """Left panel: voice selection with search, rate/pitch sliders, output folder picker."""
 
-import asyncio
+
 from pathlib import Path
 
 from PySide6.QtCore import Signal, Qt, QThread
@@ -17,15 +17,19 @@ class VoiceLoaderThread(QThread):
     """Load available TTS voices in a background thread to avoid blocking UI."""
 
     voices_loaded = Signal(list)
-    error = Signal(str)
+    load_failed = Signal(str)
 
     def run(self):
         try:
             engine = TTSEngine()
-            voices = asyncio.run(engine.get_voices_sync())
+            grouped = engine.get_grouped_voices_sync()  # already calls asyncio.run internally
+            # Flatten grouped OrderedDict into a flat list for the combo
+            voices = []
+            for locale_voices in grouped.values():
+                voices.extend(locale_voices)
             self.voices_loaded.emit(voices)
         except Exception as e:
-            self.error.emit(str(e))
+            self.load_failed.emit(str(e))
 
 
 class VoicePanel(QWidget):
@@ -138,7 +142,7 @@ class VoicePanel(QWidget):
         """Start loading voices in a background thread."""
         self._loader_thread = VoiceLoaderThread()
         self._loader_thread.voices_loaded.connect(self._on_voices_loaded)
-        self._loader_thread.error.connect(
+        self._loader_thread.load_failed.connect(
             lambda e: None  # Silently handle — voices remain empty
         )
         self._loader_thread.start()
