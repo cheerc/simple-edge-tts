@@ -30,6 +30,7 @@ function App() {
   const [selectedVoice, setSelectedVoice] = useState("zh-TW-HsiaoChenNeural");
   const [text, setText] = useState("");
   const [speed, setSpeed] = useState(1.0);
+  const [pitch, setPitch] = useState(0);
   const [speaking, setSpeaking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -45,7 +46,7 @@ function App() {
     setSpeaking(true);
     try {
       const rate = speedToRate(speed);
-      const result = await api.generateTTS(text, selectedVoice, rate, 0);
+      const result = await api.generateTTS(text, selectedVoice, rate, pitch);
 
       if (result.error) {
         addToast(result.error, "error");
@@ -58,7 +59,7 @@ function App() {
     } finally {
       setSpeaking(false);
     }
-  }, [text, selectedVoice, speed, api, addToast, speedToRate, t]);
+  }, [text, selectedVoice, speed, pitch, api, addToast, speedToRate, t]);
 
   const handleSave = useCallback(async () => {
     if (!text.trim() || !api.ready) return;
@@ -66,7 +67,7 @@ function App() {
     setSaving(true);
     try {
       const rate = speedToRate(speed);
-      const result = await api.generateTTS(text, selectedVoice, rate, 0);
+      const result = await api.generateTTS(text, selectedVoice, rate, pitch);
 
       if (result.error) {
         addToast(result.error, "error");
@@ -78,7 +79,7 @@ function App() {
     } finally {
       setSaving(false);
     }
-  }, [text, selectedVoice, speed, api, addToast, speedToRate]);
+  }, [text, selectedVoice, speed, pitch, api, addToast, speedToRate]);
 
   return (
     <div
@@ -177,6 +178,8 @@ function App() {
           <ActionBar
             speed={speed}
             onSpeedChange={setSpeed}
+            pitch={pitch}
+            onPitchChange={setPitch}
             onSpeak={handleSpeak}
             onSave={handleSave}
             speaking={speaking}

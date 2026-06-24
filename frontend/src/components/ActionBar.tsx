@@ -1,9 +1,9 @@
 /**
- * Action bar component — speed slider + action buttons.
+ * Action bar component — speed/pitch sliders + action buttons.
  *
  * Per design spec §3.9, §3.8 (Slider), §4.2.
  * Speed slider displays 0.5×–2.0×, converts to percentage for API.
- * Format select omitted: api.py generate_tts() has no format parameter.
+ * Pitch slider displays -50Hz to +50Hz, passed directly to API.
  *
  * Ref: T18 Plan §8 — Action Bar
  */
@@ -13,6 +13,8 @@ import { Loader2 } from "lucide-react";
 interface ActionBarProps {
   speed: number; // Multiplier value (0.5–2.0)
   onSpeedChange: (speed: number) => void;
+  pitch: number; // Hz value (-50 to +50)
+  onPitchChange: (pitch: number) => void;
   onSpeak: () => void;
   onSave: () => void;
   speaking: boolean;
@@ -24,6 +26,8 @@ interface ActionBarProps {
 export function ActionBar({
   speed,
   onSpeedChange,
+  pitch,
+  onPitchChange,
   onSpeak,
   onSave,
   speaking,
@@ -77,6 +81,43 @@ export function ActionBar({
           }}
         >
           {speed.toFixed(1)}×
+        </span>
+
+        {/* Pitch slider */}
+        <label
+          htmlFor="pitch-slider"
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            lineHeight: 1.4,
+            letterSpacing: "0.2px",
+            color: "var(--color-text-secondary)",
+            whiteSpace: "nowrap",
+            marginLeft: "var(--space-3)",
+          }}
+        >
+          {t("pitch")}
+        </label>
+        <input
+          id="pitch-slider"
+          type="range"
+          min={-50}
+          max={50}
+          step={1}
+          value={pitch}
+          onChange={(e) => onPitchChange(parseInt(e.target.value, 10))}
+          style={{ width: 160 }}
+        />
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: "var(--color-text-primary)",
+            minWidth: 48,
+            textAlign: "center",
+          }}
+        >
+          {pitch > 0 ? "+" : ""}{pitch}Hz
         </span>
       </div>
 
