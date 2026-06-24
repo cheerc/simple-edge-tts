@@ -16,9 +16,10 @@ interface VoiceSelectorProps {
   api: UseApiReturn;
   selectedVoice: string;
   onVoiceChange: (voice: string) => void;
+  t: (key: string) => string;
 }
 
-export function VoiceSelector({ api, selectedVoice, onVoiceChange }: VoiceSelectorProps) {
+export function VoiceSelector({ api, selectedVoice, onVoiceChange, t }: VoiceSelectorProps) {
   const [voices, setVoices] = useState<Voice[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedLanguage, setSelectedLanguage] = useState("zh-TW");
@@ -100,7 +101,7 @@ export function VoiceSelector({ api, selectedVoice, onVoiceChange }: VoiceSelect
             color: "var(--color-text-secondary)",
           }}
         >
-          Language
+          {t("language")}
         </label>
         <select
           id="language-select"
@@ -148,7 +149,7 @@ export function VoiceSelector({ api, selectedVoice, onVoiceChange }: VoiceSelect
             color: "var(--color-text-secondary)",
           }}
         >
-          Voice
+          {t("voice_selection")}
         </label>
         <select
           id="voice-select"

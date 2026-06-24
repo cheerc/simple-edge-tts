@@ -31,5 +31,11 @@
   "show_main": "顯示主視窗",
   "exit": "結束",
   "export_success_title": "匯出完成",
-  "export_success_msg": "檔案已匯出至：{path}"
+  "export_success_msg": "檔案已匯出至：{path}",
+  "text_input": "文字輸入",
+  "speed": "速度",
+  "about": "關於",
+  "about_description": "跨平台 Edge TTS 語音合成桌面應用程式",
+  "status_playing": "播放中...",
+  "status_saving": "儲存中..."
 }

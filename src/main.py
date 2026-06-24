@@ -79,11 +79,12 @@ def main():
         on_quit=lambda: window.destroy(),
     )
 
-    def _on_webview_loaded():
-        """Start the tray icon once the webview window is ready."""
-        tray.start()
-
-    webview.start(func=_on_webview_loaded)
+    # Start tray before webview — on macOS, pystray creates NSStatusItem
+    # which requires the main thread. webview.start() blocks the main thread,
+    # and its `func` callback runs in a worker thread, so tray.start() must
+    # come first. pystray runs its own event loop in a background thread.
+    tray.start()
+    webview.start()
 
 
 if __name__ == "__main__":

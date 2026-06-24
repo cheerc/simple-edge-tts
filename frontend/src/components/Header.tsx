@@ -11,9 +11,10 @@ import { Settings } from "lucide-react";
 
 interface HeaderProps {
   onSettingsClick?: () => void;
+  t: (key: string) => string;
 }
 
-export function Header({ onSettingsClick }: HeaderProps) {
+export function Header({ onSettingsClick, t }: HeaderProps) {
   return (
     <header
       className="flex items-center justify-between shrink-0"
@@ -57,7 +58,7 @@ export function Header({ onSettingsClick }: HeaderProps) {
           e.currentTarget.style.color = "var(--color-text-secondary)";
           e.currentTarget.style.background = "transparent";
         }}
-        aria-label="Settings"
+        aria-label={t("settings")}
       >
         <Settings size={20} />
       </button>

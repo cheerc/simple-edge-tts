@@ -16,41 +16,20 @@ interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
   api: UseApiReturn;
+  t: (key: string) => string;
+  language: string;
+  onLanguageChange: (lang: string) => Promise<void>;
 }
 
 const LANGUAGES = [
-  { code: "en", label: "English" },
+  { code: "en-US", label: "English" },
   { code: "zh-TW", label: "繁體中文" },
-  { code: "zh-CN", label: "简体中文" },
-  { code: "ja", label: "日本語" },
-  { code: "ko", label: "한국어" },
 ];
 
-export function SettingsModal({ open, onClose, api }: SettingsModalProps) {
-  const [language, setLanguage] = useState("zh-TW");
+export function SettingsModal({ open, onClose, t, language, onLanguageChange }: SettingsModalProps) {
   const [closing, setClosing] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
-
-  // Load current language from config
-  useEffect(() => {
-    if (!open || !api.ready) return;
-    let cancelled = false;
-
-    async function loadLanguage() {
-      try {
-        const config = await api.getConfig("language");
-        if (!cancelled && config.value && typeof config.value === "string") {
-          setLanguage(config.value);
-        }
-      } catch {
-        // Use default
-      }
-    }
-
-    loadLanguage();
-    return () => { cancelled = true; };
-  }, [open, api]);
 
   // ESC key handler
   useEffect(() => {
@@ -92,16 +71,9 @@ export function SettingsModal({ open, onClose, api }: SettingsModalProps) {
 
   const handleLanguageChange = useCallback(
     async (newLanguage: string) => {
-      setLanguage(newLanguage);
-      if (api.ready) {
-        try {
-          await api.setConfig("language", newLanguage);
-        } catch {
-          // Silent fail for config write
-        }
-      }
+      await onLanguageChange(newLanguage);
     },
-    [api]
+    [onLanguageChange]
   );
 
   if (!open) return null;
@@ -164,7 +136,7 @@ export function SettingsModal({ open, onClose, api }: SettingsModalProps) {
               margin: 0,
             }}
           >
-            Settings
+            {t("settings_title")}
           </h2>
           <button
             onClick={handleClose}
@@ -187,7 +159,7 @@ export function SettingsModal({ open, onClose, api }: SettingsModalProps) {
               e.currentTarget.style.color = "var(--color-text-secondary)";
               e.currentTarget.style.background = "transparent";
             }}
-            aria-label="Close settings"
+            aria-label={t("cancel")}
           >
             <X size={18} />
           </button>
@@ -205,7 +177,7 @@ export function SettingsModal({ open, onClose, api }: SettingsModalProps) {
               margin: "0 0 var(--space-3) 0",
             }}
           >
-            Language
+            {t("language")}
           </h3>
           <select
             id="settings-language-select"
@@ -253,7 +225,7 @@ export function SettingsModal({ open, onClose, api }: SettingsModalProps) {
               margin: "0 0 var(--space-3) 0",
             }}
           >
-            About
+            {t("about")}
           </h3>
           <div
             style={{
@@ -278,7 +250,7 @@ export function SettingsModal({ open, onClose, api }: SettingsModalProps) {
                 color: "var(--color-text-secondary)",
               }}
             >
-              Cross-platform text-to-speech desktop app powered by Edge TTS
+              {t("about_description")}
             </div>
           </div>
         </div>

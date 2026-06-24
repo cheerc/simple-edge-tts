@@ -125,6 +125,10 @@ class Api:
         try:
             self._config.set(key, value)
             self._config.save()
+            # When language changes, update the I18n instance so
+            # get_translations() returns the new language immediately
+            if key == "language" and isinstance(value, str):
+                self._i18n.set_language(value)
             return json.dumps({"success": True})
         except Exception as e:
             logger.error("Failed to set config %s: %s", key, e)

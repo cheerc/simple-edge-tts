@@ -9,16 +9,17 @@ interface TextEditorProps {
   text: string;
   onTextChange: (text: string) => void;
   placeholder?: string;
+  t: (key: string) => string;
 }
 
-export function TextEditor({ text, onTextChange, placeholder }: TextEditorProps) {
+export function TextEditor({ text, onTextChange, placeholder, t }: TextEditorProps) {
   return (
     <div className="relative flex flex-col flex-1">
       <textarea
         id="tts-text-input"
         value={text}
         onChange={(e) => onTextChange(e.target.value)}
-        placeholder={placeholder || "Enter text to speak..."}
+        placeholder={placeholder || t("text_placeholder")}
         style={{
           width: "100%",
           minHeight: 200,
