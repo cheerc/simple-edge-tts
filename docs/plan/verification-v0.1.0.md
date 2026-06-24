@@ -12,8 +12,7 @@
 
 ```bash
 cd simple-edge-tts
-pip install -e ".[dev]"
-python -m src.main
+uv run simple-edge-tts
 ```
 
 ---
