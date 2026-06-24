@@ -38,6 +38,12 @@
 | `tests/test_ui/test_main_window.py` | Window layout, splitter tests |
 | `tests/test_ui/test_voice_panel.py` | Voice combo, slider, folder picker tests |
 | `tests/test_ui/test_text_panel.py` | Text input, button state, export tests |
+| `workflow.sh` | Local test runner (t1-t6), interactive menu + CLI dispatch |
+| `deploy.sh` | Packaging script (p1/p2/p3/v1) |
+| `.github/workflows/ci.yml` | PR gate: runs `./workflow.sh t6` |
+| `.github/workflows/build.yml` | Release build: tag v* → exe + dmg |
+| `.github/PULL_REQUEST_TEMPLATE.md` | PR checklist template |
+| `.pre-commit-config.yaml` | gitleaks secret scanning hook |
 
 ---
 
@@ -77,6 +83,9 @@ dev = [
     "pytest>=7.0",
     "pytest-qt>=4.2",
     "pytest-asyncio>=0.21",
+    "mypy>=1.8",
+    "ruff>=0.3",
+    "pyinstaller>=6.0",
 ]
 
 [project.scripts]
@@ -1777,12 +1786,274 @@ git commit -m "feat: main window with splitter layout, TTS worker, and language 
 
 ---
 
-## Task 10: GitHub Actions CI/CD
+## Task 10: workflow.sh — Local Test Runner
 
 **Files:**
-- Create: `.github/workflows/build.yml`
+- Create: `workflow.sh`
 
-- [ ] **Step 1: Create workflow file**
+- [ ] **Step 1: Create `workflow.sh`**
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── Colors ───────────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; NC='\033[0m'
+
+PASS=0; FAIL=0; STEPS=()
+
+run_step() {
+  local name="$1"; shift
+  printf "${BLUE}▶ %s${NC}\n" "$name"
+  if "$@"; then
+    printf "${GREEN}✓ %s PASSED${NC}\n\n" "$name"
+    PASS=$((PASS + 1))
+  else
+    printf "${RED}✗ %s FAILED${NC}\n\n" "$name"
+    FAIL=$((FAIL + 1))
+  fi
+  STEPS+=("$name")
+}
+
+summary() {
+  echo "──────────────────────────────────"
+  printf "${GREEN}PASS: %d${NC}  ${RED}FAIL: %d${NC}  TOTAL: %d\n" "$PASS" "$FAIL" "$((PASS + FAIL))"
+  if [ "$FAIL" -gt 0 ]; then exit 1; fi
+}
+
+# ─── Test Steps ───────────────────────────────────────────
+t1() { run_step "t1 Build check" python -m py_compile src/main.py; }
+t2() { run_step "t2 Type check"  python -m mypy src/ --ignore-missing-imports; }
+t3() { run_step "t3 Lint"        python -m ruff check src/ tests/; }
+t4() { run_step "t4 Unit tests"  python -m pytest tests/ -v --ignore=tests/test_ui; }
+t5() { run_step "t5 UI tests"    python -m pytest tests/test_ui/ -v; }
+t6() { t2; t3; t4; t5; summary; }
+
+# ─── Single-file runners (TDD) ────────────────────────────
+t4-file() { run_step "t4-file $1" python -m pytest "$1" -v; }
+
+# ─── Interactive Menu ─────────────────────────────────────
+menu() {
+  echo "┌─────────────────────────────────┐"
+  echo "│  simple-edge-tts  workflow.sh   │"
+  echo "├─────────────────────────────────┤"
+  echo "│  t1  Build check                │"
+  echo "│  t2  Type check (mypy)          │"
+  echo "│  t3  Lint (ruff)                │"
+  echo "│  t4  Unit tests                 │"
+  echo "│  t5  UI tests                   │"
+  echo "│  t6  Full run (t2→t3→t4→t5)     │"
+  echo "│                                 │"
+  echo "│  t4-file <path>  Single test    │"
+  echo "└─────────────────────────────────┘"
+  printf "Select step: "
+  read -r choice
+  case "$choice" in
+    t[1-6]) "$choice" ;;
+    t4-file)
+      printf "File path: "
+      read -r fpath
+      t4-file "$fpath"
+      ;;
+    *) echo "Unknown: $choice" ;;
+  esac
+}
+
+# ─── Dispatch ─────────────────────────────────────────────
+if [ $# -eq 0 ]; then
+  menu
+else
+  cmd="$1"; shift
+  case "$cmd" in
+    t[1-6]) "$cmd" ;;
+    t4-file) t4-file "$1" ;;
+    *) echo "Unknown: $cmd"; exit 1 ;;
+  esac
+fi
+```
+
+- [ ] **Step 2: Make executable and test**
+
+Run: `chmod +x workflow.sh && ./workflow.sh t1`
+Expected: "t1 Build check PASSED"
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add workflow.sh
+git commit -m "ci: add workflow.sh local test runner (t1-t6)"
+```
+
+---
+
+## Task 11: deploy.sh — Packaging Script
+
+**Files:**
+- Create: `deploy.sh`
+
+- [ ] **Step 1: Create `deploy.sh`**
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; NC='\033[0m'
+
+APP_NAME="simple-edge-tts"
+VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+
+info()  { printf "${BLUE}▶ %s${NC}\n" "$*"; }
+ok()    { printf "${GREEN}✓ %s${NC}\n" "$*"; }
+warn()  { printf "${YELLOW}⚠ %s${NC}\n" "$*"; }
+err()   { printf "${RED}✗ %s${NC}\n" "$*"; exit 1; }
+
+# ─── Packaging Steps ──────────────────────────────────────
+p1() {
+  info "p1: Build Windows exe"
+  python -m PyInstaller --onefile --windowed \
+    --name "$APP_NAME" \
+    --icon src/resources/icons/icon.ico \
+    src/main.py
+  ok "Built: dist/${APP_NAME}.exe"
+}
+
+p2() {
+  info "p2: Build macOS app + dmg"
+  python -m PyInstaller --windowed \
+    --name "$APP_NAME" \
+    --icon src/resources/icons/icon.icns \
+    src/main.py
+  info "Creating .dmg..."
+  hdiutil create \
+    -volname "$APP_NAME" \
+    -srcfolder "dist/${APP_NAME}.app" \
+    -ov -format UDZO \
+    "dist/${APP_NAME}.dmg"
+  ok "Built: dist/${APP_NAME}.dmg"
+}
+
+p3() {
+  info "p3: Build All"
+  p1
+  p2
+}
+
+v1() {
+  info "v1: Version bump"
+  if [ $# -eq 0 ]; then
+    printf "New version (current: %s): " "$VERSION"
+    read -r NEW_VERSION
+  else
+    NEW_VERSION="$1"
+  fi
+  sed -i.bak "s/version = \"$VERSION\"/version = \"$NEW_VERSION\"/" pyproject.toml
+  rm -f pyproject.toml.bak
+  git add pyproject.toml
+  git commit -m "chore: bump version to $NEW_VERSION"
+  git tag "v$NEW_VERSION"
+  ok "Bumped to $NEW_VERSION and tagged v$NEW_VERSION"
+  warn "Run 'git push origin main --tags' to trigger release build"
+}
+
+# ─── Interactive Menu ─────────────────────────────────────
+menu() {
+  echo "┌──────────────────────────────────┐"
+  echo "│  simple-edge-tts  deploy.sh      │"
+  echo "├──────────────────────────────────┤"
+  echo "│  p1  Build Windows exe           │"
+  echo "│  p2  Build macOS app + dmg       │"
+  echo "│  p3  Build All                   │"
+  echo "│  v1  Version bump + tag          │"
+  echo "└──────────────────────────────────┘"
+  printf "Select step: "
+  read -r choice
+  case "$choice" in
+    p[1-3]|v1) "$choice" ;;
+    *) echo "Unknown: $choice" ;;
+  esac
+}
+
+# ─── Dispatch ─────────────────────────────────────────────
+if [ $# -eq 0 ]; then
+  menu
+else
+  cmd="$1"; shift
+  case "$cmd" in
+    p[1-3]) "$cmd" ;;
+    v1) v1 "$@" ;;
+    *) echo "Unknown: $cmd"; exit 1 ;;
+  esac
+fi
+```
+
+- [ ] **Step 2: Make executable**
+
+Run: `chmod +x deploy.sh`
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add deploy.sh
+git commit -m "ci: add deploy.sh packaging script (p1/p2/p3/v1)"
+```
+
+---
+
+## Task 12: GitHub Actions Workflows
+
+**Files:**
+- Create: `.github/workflows/ci.yml`
+- Create: `.github/workflows/build.yml`
+- Create: `.github/PULL_REQUEST_TEMPLATE.md`
+- Create: `.pre-commit-config.yaml`
+
+- [ ] **Step 1: Create `.github/workflows/ci.yml`**
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: pre-merge-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-merge-checks:
+    name: pre-merge-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: t2 Type check
+        run: ./workflow.sh t2
+      - name: t3 Lint
+        run: ./workflow.sh t3
+      - name: t4 Unit tests
+        run: ./workflow.sh t4
+      - name: t5 UI tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon0 libxcb-xinerama0
+          QT_QPA_PLATFORM=offscreen ./workflow.sh t5
+```
+
+- [ ] **Step 2: Create `.github/workflows/build.yml`**
 
 ```yaml
 name: Build & Release
@@ -1802,7 +2073,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e ".[dev]" pyinstaller
+      - run: pip install -e ".[dev]"
       - run: pytest -v
       - run: pyinstaller --onefile --windowed --name simple-edge-tts src/main.py
       - uses: actions/upload-artifact@v4
@@ -1817,7 +2088,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e ".[dev]" pyinstaller
+      - run: pip install -e ".[dev]"
       - run: pytest -v
       - run: pyinstaller --windowed --name simple-edge-tts src/main.py
       - run: |
@@ -1839,36 +2110,66 @@ jobs:
             macos-dmg/simple-edge-tts.dmg
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Create `.github/PULL_REQUEST_TEMPLATE.md`**
+
+```markdown
+## What
+<!-- Brief description of changes -->
+## Why
+<!-- Motivation / issue reference -->
+## How
+<!-- Implementation approach -->
+## Checklist
+- [ ] `./workflow.sh t6` passes (full run)
+- [ ] New tests added for new functionality
+- [ ] No secrets or credentials in code
+```
+
+- [ ] **Step 4: Create `.pre-commit-config.yaml`**
+
+```yaml
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+```
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add .github/
-git commit -m "ci: GitHub Actions build workflow for Windows exe and macOS dmg"
+git add .github/ .pre-commit-config.yaml
+git commit -m "ci: add PR gate workflow, release build, PR template, gitleaks hook"
 ```
 
 ---
 
-## Task 11: Manual Smoke Test
+## Task 13: Manual Smoke Test
 
-- [ ] **Step 1: Run the app locally**
+- [ ] **Step 1: Run full workflow check**
+
+Run: `./workflow.sh t6`
+Expected: t2→t3→t4→t5 all PASS
+
+- [ ] **Step 2: Run the app locally**
 
 Run: `python -m src.main`
 Expected: Window opens with left-right layout, dark/light theme matches OS
 
-- [ ] **Step 2: Verify i18n toggle**
+- [ ] **Step 3: Verify i18n toggle**
 
 Click `EN` button → all UI text switches to English
 Click `繁中` button → all UI text switches back to Traditional Chinese
 
-- [ ] **Step 3: Test TTS preview** (requires internet)
+- [ ] **Step 4: Test TTS preview** (requires internet)
 
 Type text → click ▶ 試聽 → audio plays through speakers
 
-- [ ] **Step 4: Test export** (requires internet)
+- [ ] **Step 5: Test export** (requires internet)
 
 Type text → click 💾 匯出 MP3 → file saved to output folder
 
-- [ ] **Step 5: Final commit and tag**
+- [ ] **Step 6: Final commit and tag**
 
 ```bash
 git add -A
