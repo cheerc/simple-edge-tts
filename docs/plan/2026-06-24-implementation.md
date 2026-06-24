@@ -46,8 +46,15 @@
 | `.github/workflows/build.yml` | Release build: tag v* → exe + dmg |
 | `.github/PULL_REQUEST_TEMPLATE.md` | PR checklist template |
 | `.pre-commit-config.yaml` | gitleaks secret scanning hook |
+| `.editorconfig` | Editor-agnostic indent/charset settings |
+| `.gitignore` | Python project ignores (__pycache__, .venv, dist, build) |
+| `.github/ISSUE_TEMPLATE/bug_report.yml` | Bug report form template |
+| `.github/ISSUE_TEMPLATE/feature_request.yml` | Feature request form template |
+| `.github/ISSUE_TEMPLATE/config.yml` | Disable blank issues |
+| `.github/dependabot.yml` | Automated pip + GitHub Actions dependency updates |
 | `CONTRIBUTING.md` | Contributor guide: how to report bugs, submit PRs, run tests |
 | `CODE_OF_CONDUCT.md` | Contributor Covenant v2.1 |
+| `SECURITY.md` | Security vulnerability reporting policy |
 | *(external)* `agend-customization/team-skills/simple-edge-tts/set-release/SKILL.md` | AgEnD release skill: version bump → tag → CI build → verify Release |
 
 ---
@@ -62,8 +69,11 @@
 - Create: `tests/test_ui/__init__.py`
 - Create: `README.md`
 - Create: `LICENSE`
+- Create: `.gitignore`
+- Create: `.editorconfig`
 - Create: `CONTRIBUTING.md`
 - Create: `CODE_OF_CONDUCT.md`
+- Create: `SECURITY.md`
 
 - [ ] **Step 1: Create `pyproject.toml`**
 
@@ -294,13 +304,108 @@ version 2.1, available at
 https://www.contributor-covenant.org/version/2/1/code_of_conduct.html.
 ```
 
-- [ ] **Step 8: Install dev dependencies and verify**
+- [ ] **Step 8: Create `.gitignore`**
+
+```gitignore
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+
+# Build
+dist/
+build/
+*.spec
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Type checking / lint / test cache
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Packaging output
+*.exe
+*.dmg
+*.app/
+```
+
+- [ ] **Step 9: Create `.editorconfig`**
+
+```ini
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,json,md}]
+indent_size = 2
+
+[Makefile]
+indent_style = tab
+```
+
+- [ ] **Step 10: Create `SECURITY.md`**
+
+```markdown
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported |
+|---|---|
+| latest | ✅ |
+| < latest | ❌ |
+
+## Reporting a Vulnerability
+
+**請勿在公開的 GitHub Issue 回報安全漏洞。**
+
+Please **do NOT** report security vulnerabilities through public GitHub issues.
+
+Instead, please use GitHub’s
+[private vulnerability reporting](https://github.com/cheerc/simple-edge-tts/security/advisories/new).
+
+You should receive a response within 48 hours.
+```
+
+- [ ] **Step 11: Add badges to `README.md`**
+
+Insert below the title line in README.md:
+
+```markdown
+[![CI](https://github.com/cheerc/simple-edge-tts/actions/workflows/ci.yml/badge.svg)](https://github.com/cheerc/simple-edge-tts/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+```
+
+- [ ] **Step 12: Install dev dependencies and verify**
 
 Run: `pip install -e ".[dev]"`
 Run: `python -m src.main`
 Expected: prints `simple-edge-tts v0.1.0`
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
 git add -A
@@ -2314,6 +2419,10 @@ git commit -m "ci: add deploy.sh packaging script (p1/p2/p3/v1)"
 - Create: `.github/workflows/build.yml`
 - Create: `.github/PULL_REQUEST_TEMPLATE.md`
 - Create: `.pre-commit-config.yaml`
+- Create: `.github/ISSUE_TEMPLATE/bug_report.yml`
+- Create: `.github/ISSUE_TEMPLATE/feature_request.yml`
+- Create: `.github/ISSUE_TEMPLATE/config.yml`
+- Create: `.github/dependabot.yml`
 
 - [ ] **Step 1: Create `.github/workflows/ci.yml`**
 
@@ -2464,11 +2573,121 @@ repos:
       - id: gitleaks
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Create `.github/ISSUE_TEMPLATE/bug_report.yml`**
+
+```yaml
+name: 🐛 Bug Report
+description: 回報一個 bug / Report a bug
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 說明 / Description
+      description: 發生了什麼問題？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 復現步驟 / Steps to Reproduce
+      description: 如何重現這個問題？
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 預期行為 / Expected Behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 作業系統 / Operating System
+      options:
+        - Windows
+        - macOS
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App 版本 / App Version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截圖 / Screenshots
+      description: 如有截圖請附上
+    validations:
+      required: false
+```
+
+- [ ] **Step 6: Create `.github/ISSUE_TEMPLATE/feature_request.yml`**
+
+```yaml
+name: ✨ Feature Request
+description: 建議新功能 / Suggest a feature
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 問題 / Problem
+      description: 你想解決什麼問題？
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 提議的解決方案 / Proposed Solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案 / Alternatives Considered
+    validations:
+      required: false
+```
+
+- [ ] **Step 7: Create `.github/ISSUE_TEMPLATE/config.yml` + `.github/dependabot.yml`**
+
+`.github/ISSUE_TEMPLATE/config.yml`:
+```yaml
+blank_issues_enabled: false
+```
+
+`.github/dependabot.yml`:
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+```
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add .github/ .pre-commit-config.yaml
-git commit -m "ci: add PR gate workflow, release build, PR template, gitleaks hook"
+git commit -m "ci: add workflows, PR/issue templates, dependabot, gitleaks hook"
 ```
 
 ---
