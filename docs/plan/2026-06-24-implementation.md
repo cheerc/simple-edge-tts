@@ -55,6 +55,7 @@
 | `CONTRIBUTING.md` | Contributor guide: how to report bugs, submit PRs, run tests |
 | `CODE_OF_CONDUCT.md` | Contributor Covenant v2.1 |
 | `SECURITY.md` | Security vulnerability reporting policy |
+| `docs/plan/verification-v0.1.0.md` | 使用者驗證清單：51 項手動測試（UI + 打包 + Release） |
 | *(external)* `agend-customization/team-skills/simple-edge-tts/set-release/SKILL.md` | AgEnD release skill: version bump → tag → CI build → verify Release |
 
 ---
@@ -2775,36 +2776,46 @@ git push
 
 ---
 
-## Task 15: Manual Smoke Test
+## Task 15: User Verification（人工驗收）
 
-- [ ] **Step 1: Run full workflow check**
+**Reference**: [`docs/plan/verification-v0.1.0.md`](verification-v0.1.0.md)（51 項測試清單）
 
-Run: `./workflow.sh t6`
-Expected: t2→t3→t4→t5 all PASS
+> 本 Task 不是寫 code。是在所有 Task 1-14 完成、CI 綠、打包產出 .exe/.dmg 後，由人手動走一遍驗證清單。
 
-- [ ] **Step 2: Run the app locally**
+- [ ] **Step 1: 開發環境驗證（§1-§9, 38 項）**
 
-Run: `python -m src.main`
-Expected: Window opens with left-right layout, dark/light theme matches OS
+```bash
+python -m src.main
+```
 
-- [ ] **Step 3: Verify i18n toggle**
+按 verification checklist §1-§9 逐項測試，在 checklist 打勾。
 
-Click `EN` button → all UI text switches to English
-Click `繁中` button → all UI text switches back to Traditional Chinese
+- [ ] **Step 2: 打包後驗證（§10, 9 項）**
 
-- [ ] **Step 4: Test TTS preview** (requires internet)
+```bash
+./deploy.sh p3   # build both platforms
+```
 
-Type text → click ▶ 試聽 → audio plays through speakers
+在 Windows 測 .exe、在 macOS 測 .dmg，按 §10 逐項測試。
+特別驗證：
+- SmartScreen / Gatekeeper 繞過是否可行
+- config 路徑在打包後是否正確（設定可保存）
 
-- [ ] **Step 5: Test export** (requires internet)
-
-Type text → click 💾 匯出 MP3 → file saved to output folder
-
-- [ ] **Step 6: Release via deploy.sh**
+- [ ] **Step 3: Release 驗證（§11, 4 項）**
 
 ```bash
 ./deploy.sh v1 0.1.0
 git push origin main --tags
 ```
 
-Expected: GitHub Actions `build.yml` triggers, builds both platforms, creates Release with changelog + binaries
+等 GitHub Actions build.yml 完成後，按 §11 檢查：
+- Release 頁面存在、tag 正確
+- Assets 有 .exe + .dmg
+- Release body 有 changelog + 安全性說明
+
+- [ ] **Step 4: 簽收**
+
+全部 51 項 Pass → 在 verification checklist 頂部加一行：
+```markdown
+> ✅ Verified: 2026-XX-XX by [name], all 51 items passed
+```
