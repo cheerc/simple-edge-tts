@@ -4,7 +4,6 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from PySide6.QtCore import QEvent
 from PySide6.QtGui import QCloseEvent
 
 from src.config_manager import ConfigManager

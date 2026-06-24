@@ -3,7 +3,6 @@
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from src.update_checker import UpdateChecker, compare_versions
 

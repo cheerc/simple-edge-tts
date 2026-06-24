@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-import pytest
 from src.i18n import I18n
 
 

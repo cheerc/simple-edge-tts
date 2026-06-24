@@ -1,9 +1,7 @@
 """Tests for tts_engine — voice listing, param formatting, async generation (mocked)."""
 
 import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 from src.tts_engine import TTSEngine, format_rate, format_pitch, sanitize_filename
 
 

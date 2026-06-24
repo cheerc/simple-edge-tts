@@ -1,7 +1,6 @@
 """Tests for voice_panel — voice combo, search filter, sliders, folder picker."""
 
 import pytest
-from PySide6.QtCore import Qt
 from src.ui.voice_panel import VoicePanel
 from src.i18n import I18n
 from pathlib import Path
