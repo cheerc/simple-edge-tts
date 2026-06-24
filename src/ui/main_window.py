@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._connect_signals()
         self._restore_state()
+        self._voice_panel.load_voices_async()
 
     def _setup_ui(self):
         self.setWindowTitle(self._i18n.t("app_title"))
