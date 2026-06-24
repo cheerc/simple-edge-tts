@@ -2693,6 +2693,33 @@ git add .github/ .pre-commit-config.yaml
 git commit -m "ci: add workflows, PR/issue templates, dependabot, gitleaks hook"
 ```
 
+- [ ] **Step 9: Configure GitHub Branch Protection (manual)**
+
+> ⚠️ 這一步在 GitHub Settings 手動操作，不是程式碼。CI workflow 必須先 push 上去（Step 8），branch protection 才能引用 status check 名稱。
+
+**路徑**: GitHub → Settings → Branches → Add branch ruleset (or Add rule)
+
+**設定 `main` branch**：
+
+| 設定 | 值 | 說明 |
+|---|---|---|
+| Branch name pattern | `main` | |
+| Require status checks to pass | ✅ | |
+| Status checks required | `pre-merge-checks` | ci.yml 的 job name |
+| Require branches to be up to date | ✅ | PR 必須是最新的 |
+| Require approvals | ❌（Solo 不需要） | 未來多人開發時再開 |
+| Do not allow deletions | ✅ | 防止誤刪 main |
+| Do not allow force pushes | ✅ | 防止改寫歷史 |
+| Allow squash merging | ✅ | 保持 main 歷史乾淨 |
+
+**驗證**：
+```bash
+# 嘗試直接 push 到 main（應該被擋）
+echo "test" >> test.txt && git add test.txt && git commit -m "test" && git push origin main
+# Expected: remote rejected (protected branch)
+git reset --hard HEAD~1
+```
+
 ---
 
 ## Task 14: Release Skill (AgEnD)
