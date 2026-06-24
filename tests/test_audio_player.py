@@ -12,13 +12,15 @@ class TestPlayerState:
 
     def test_play_changes_state(self):
         player = AudioPlayer()
-        with patch.object(player, "_media_player", create=True):
+        with patch.object(player, "_media_player", create=True), \
+             patch("src.audio_player.Path.exists", return_value=True):
             player.play("/fake/path.mp3")
             assert player.state == PlayerState.PLAYING
 
     def test_stop_returns_to_idle(self):
         player = AudioPlayer()
-        with patch.object(player, "_media_player", create=True):
+        with patch.object(player, "_media_player", create=True), \
+             patch("src.audio_player.Path.exists", return_value=True):
             player.play("/fake/path.mp3")
             player.stop()
             assert player.state == PlayerState.IDLE
