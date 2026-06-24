@@ -65,6 +65,7 @@ Key changes:
 - **Map** shadcn variables (`--background`, `--foreground`, `--primary`, etc.) to our tokens per §7.2
 - **Add** `--popover` and `--popover-foreground` mappings
 - **Keep** `@import "tailwindcss"` and shadcn imports
+- **Note**: Using Tailwind v4 `@theme inline` block in CSS (no separate `tailwind.config.ts` needed). The `@theme` block in `index.css` already defines color/radius/shadow tokens that Tailwind consumes.
 
 ### Section 2: TypeScript Types (~40 lines)
 
@@ -108,16 +109,17 @@ Per §3.1:
 - App name "Simple Edge TTS" with `--text-heading` weight 700
 - Settings icon (gear from lucide-react), 20×20px
 - Settings icon hover → accent color
+- Settings icon onClick → no-op for T18 (wired to Settings Modal in T19)
 - Bottom border 1px `--color-border`
 
 ### Section 6: Voice Selector Component (~80 lines)
 
 **File**: `frontend/src/components/VoiceSelector.tsx`
 
-Per §3.6, §3.7, §4.1:
+Per §3.6 (Select/Dropdown), §4.1 (Voice Selection Flow):
 - On mount: call `api.getVoices()` to get voice list
 - **Language dropdown** (§3.6): Select component with grouped languages extracted from voice locales
-- **Voice dropdown** (§3.7): Filtered by selected language, shows voice name + gender badge
+- **Voice dropdown** (§3.6): Filtered by selected language, shows voice name + gender badge
 - Voice preview tag showing selected voice
 - Loading skeleton while voices fetch
 - Expose `selectedVoice` state to parent
@@ -126,7 +128,7 @@ Per §3.6, §3.7, §4.1:
 
 **File**: `frontend/src/components/TextEditor.tsx`
 
-Per §3.8:
+Per §3.7 (Textarea):
 - Textarea with `--text-body`, min height 200px, grows with content
 - Character count badge (bottom-right corner)
 - Placeholder text from i18n or default "Enter text to speak..."
@@ -137,10 +139,14 @@ Per §3.8:
 
 **File**: `frontend/src/components/ActionBar.tsx`
 
-Per §3.9, §4.2:
+Per §3.9, §3.8 (Slider), §4.2:
 - Height 60px, bottom of right panel
-- **Speed slider** (w: 200px): range -100 to 100, default 0, shows current value
+- **Speed slider** (w: 200px): displays `0.5×–2.0×` per §3.8, step 0.1×
+  - Internal conversion: multiplier → API percentage (e.g. `1.0× → 0`, `0.5× → -50`, `2.0× → +100`)
+  - Formula: `percentage = (multiplier - 1.0) × 100`
+  - Default: `1.0×` (= 0%)
 - **Format select** (w: 120px): mp3 / webm options
+  - NOTE: `api.py generate_tts()` currently has no `format` parameter — impl should either extend the API to accept format, or remove this control if format is auto-determined. Discovery item.
 - **[Speak] button**: Primary accent, calls `api.generateTTS()` → `api.playAudio()`
   - Loading state with spinner during generation
   - Success/error toast feedback
@@ -164,12 +170,15 @@ Per §2.1 layout:
 
 1. `cd frontend && npm run build` — TypeScript compiles without errors
 2. `cd frontend && npm run lint` — No lint errors
-3. Visual verification (manual): 
-   - 2-column layout renders correctly
-   - Design tokens (coral accent, cream bg) applied
+3. Visual verification (manual):
+   - 2-column layout renders correctly at default 1200×750
+   - Responsive: resize to <1000px → single column (voice above text, per §2.2)
+   - Design tokens (coral accent `#cc4a35`, cream bg `#fafafa`) applied
    - Voice selector populates from API
    - Speak/Save buttons trigger TTS via IPC
    - Toast notifications appear on success/error
+   - Focus ring (`--shadow-focus`) visible when tabbing through controls
+   - Keyboard tab order follows visual layout (header → voice → text → action bar)
 4. `uv run pytest tests/` — Existing Python tests still pass (no Python changes in T18)
 
 ## Affected Tests
