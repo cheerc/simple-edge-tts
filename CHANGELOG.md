@@ -4,9 +4,10 @@
 
 ### Highlights
 - Complete UI redesign: PySide6 → React + PyWebView
-- Light Cream + Coral color scheme
+- Light Cream + Coral color scheme with dark/light theme support
 - System tray support (pystray)
 - i18n: zh-TW / en-US live switching
+- Auto-update version check (detect + notify)
 - CI/CD pipeline with frontend build
 
 ### Added
@@ -20,6 +21,9 @@
 - System tray (Show/Hide, Quit) via pystray
 - Frontend i18n with live language switching
 - CI: frontend build + lint integrated
+- Pitch control slider (-50 to +50 Hz)
+- Dark/light theme with system preference detection
+- Auto-update version check (detect + notify, no auto-download)
 
 ### Changed
 - UI framework: PySide6 → React + PyWebView
@@ -28,7 +32,4 @@
 - Entry point: `python -m src.main` → `uv run simple-edge-tts`
 
 ### Known Limitations
-- Pitch control: backend supports it but no UI slider yet
-- Dark/light theme: not yet implemented
-- Auto-update: not yet implemented
-- Output format selection: MP3 only
+- Output format: MP3 only (edge-tts API limitation)
