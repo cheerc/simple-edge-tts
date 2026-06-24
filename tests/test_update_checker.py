@@ -70,3 +70,36 @@ class TestUpdateChecker:
         # Even if API returns 0.2.0, skip_version suppresses it
         assert checker._should_skip("0.2.0") is True
         assert checker._should_skip("0.3.0") is False
+
+    @patch("src.update_checker.urlopen")
+    def test_check_returns_result(self, mock_urlopen):
+        """Test public check() method returns update info."""
+        response = MagicMock()
+        response.read.return_value = json.dumps({
+            "tag_name": "v0.3.0",
+            "html_url": "https://github.com/cheerc/simple-edge-tts/releases/tag/v0.3.0"
+        }).encode()
+        response.__enter__ = lambda s: s
+        response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = response
+
+        checker = UpdateChecker(current_version="0.1.0")
+        result = checker.check()
+        assert result is not None
+        assert result["latest"] == "0.3.0"
+
+    @patch("src.update_checker.urlopen")
+    def test_check_respects_skip(self, mock_urlopen):
+        """Test public check() method respects skip_version."""
+        response = MagicMock()
+        response.read.return_value = json.dumps({
+            "tag_name": "v0.2.0",
+            "html_url": "https://github.com/cheerc/simple-edge-tts/releases/tag/v0.2.0"
+        }).encode()
+        response.__enter__ = lambda s: s
+        response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = response
+
+        checker = UpdateChecker(current_version="0.1.0", skip_version="0.2.0")
+        result = checker.check()
+        assert result is None

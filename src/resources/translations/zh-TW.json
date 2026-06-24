@@ -40,5 +40,8 @@
   "status_saving": "儲存中...",
   "theme_light": "淺色模式",
   "theme_dark": "深色模式",
-  "theme_toggle": "切換主題"
+  "theme_toggle": "切換主題",
+  "update_available": "新版本 {version} 可用！",
+  "update_download": "前往下載",
+  "update_skip": "略過"
 }

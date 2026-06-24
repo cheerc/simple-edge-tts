@@ -40,5 +40,8 @@
   "status_saving": "Saving...",
   "theme_light": "Light Mode",
   "theme_dark": "Dark Mode",
-  "theme_toggle": "Toggle theme"
+  "theme_toggle": "Toggle theme",
+  "update_available": "Version {version} available!",
+  "update_download": "Download",
+  "update_skip": "Skip"
 }

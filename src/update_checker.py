@@ -1,10 +1,14 @@
-"""Check GitHub Releases for new versions on startup."""
+"""Check GitHub Releases for new versions on startup.
+
+Simple detect-only: no auto-download/install. Returns update info
+dict if newer version is available, None otherwise.
+
+Ref: T24 — Auto-update detect + notify
+"""
 
 import json
 import logging
 from urllib.request import Request, urlopen
-
-from PySide6.QtCore import QThread, Signal
 
 logger = logging.getLogger(__name__)
 
@@ -18,13 +22,10 @@ def compare_versions(current: str, latest: str) -> bool:
     return parse(latest) > parse(current)
 
 
-class UpdateChecker(QThread):
-    """Background thread that checks GitHub for a newer release."""
-
-    update_available = Signal(dict)  # {"latest": str, "url": str}
+class UpdateChecker:
+    """Check GitHub for a newer release (no PySide6 dependency)."""
 
     def __init__(self, current_version: str, skip_version: str | None = None):
-        super().__init__()
         self.current_version = current_version
         self.skip_version = skip_version
 
@@ -49,8 +50,14 @@ class UpdateChecker(QThread):
             logger.debug("Update check failed", exc_info=True)
         return None
 
-    def run(self):
-        """QThread entry point."""
+    def check(self) -> dict | None:
+        """Check for updates, respecting skip_version.
+
+        Returns:
+            {'latest': str, 'url': str} if newer non-skipped version available,
+            None otherwise.
+        """
         result = self._check()
         if result and not self._should_skip(result["latest"]):
-            self.update_available.emit(result)
+            return result
+        return None

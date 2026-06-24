@@ -9,7 +9,7 @@
  * Ref: T18 Plan §9 — App Layout
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 import { Header } from "./components/Header";
 import { VoiceSelector } from "./components/VoiceSelector";
@@ -36,6 +36,29 @@ function App() {
   const [speaking, setSpeaking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Check for updates on mount (non-blocking, fail-silent)
+  useEffect(() => {
+    if (!api.ready) return;
+    let cancelled = false;
+
+    async function checkForUpdate() {
+      try {
+        const update = await api.checkUpdate();
+        if (!cancelled && update) {
+          addToast(
+            `${t("update_available").replace("{version}", update.latest)} → ${update.url}`,
+            "info"
+          );
+        }
+      } catch {
+        // Fail silently — no error toast if offline
+      }
+    }
+
+    checkForUpdate();
+    return () => { cancelled = true; };
+  }, [api, api.ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Convert speed multiplier to API percentage: (multiplier - 1.0) × 100
   const speedToRate = useCallback((multiplier: number): number => {
