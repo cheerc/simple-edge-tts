@@ -9,7 +9,7 @@
 
 使用 Microsoft Edge TTS API，選擇聲音、輸入文字、即時預聽、匯出 MP3。
 
-<!-- TODO: add screenshot after v0.1.0 release -->
+<!-- TODO: add screenshot -->
 
 ## 下載 Download
 
@@ -17,7 +17,7 @@
 
 | 平台 | 檔案 | 說明 |
 |---|---|---|
-| Windows | `simple-edge-tts.exe` | 下載後直接執行，免安裝 |
+| Windows | `simple-edge-tts.zip` | 下載後解壓縮執行，免安裝 |
 | macOS | `simple-edge-tts.dmg` | 打開 DMG，拖到 Applications |
 
 ## ⚠️ 首次執行安全性說明
@@ -38,23 +38,26 @@
 
 ## 使用方式
 
-1. **選擇聲音** — 左側面板搜尋並選擇語音（預設台灣中文）
+1. **選擇聲音** — 左側面板選擇語言和語音（預設台灣中文）
 2. **輸入文字** — 右側面板輸入要轉換的文字
-3. **預聽或匯出** — 點擊 ▶ 試聽 或 💾 匯出 MP3
+3. **調整語速** — 拖動速度滑桿（0.5× – 2.0×）
+4. **預聽或匯出** — 點擊「試聽」預聽，或「匯出 MP3」儲存檔案
+5. **設定** — 點擊右上角齒輪圖示，切換介面語言
 
 ## 功能 Features
 
 - 🎙️ 300+ 聲音（Microsoft Edge TTS）
-- 🇹🇼 繁體中文 & English 介面切換
-- 🎚️ 語速 / 音調 調整
-- 🌗 深色 / 淺色主題（跟隨系統）
+- 🇹🇼 繁體中文 & English 介面即時切換
+- 🎚️ 語速調整（0.5× – 2.0×）
 - 💾 匯出 MP3
-- 🔄 自動檢查更新
+- 📢 系統匣圖示（最小化到系統匣）
 - 🖥️ macOS + Windows
 
 ## 系統需求
 
 - Windows 10+ 或 macOS 12+
+- Python 3.11+（從原始碼執行時）
+- Node.js 20+（從原始碼執行時）
 - 網路連線（TTS API 需要連線）
 
 ## 隱私與資料流 / Privacy & Data Flow
@@ -75,36 +78,47 @@
 ```bash
 git clone https://github.com/cheerc/simple-edge-tts.git
 cd simple-edge-tts
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+
+# Backend (Python)
+uv sync --all-extras
+
+# Frontend (React)
+cd frontend && npm ci && npm run build
+cd ..
 ```
 
 ### 測試
 
 ```bash
-./workflow.sh t6                    # 完整測試（mypy + ruff + pytest）
-./workflow.sh t4-file tests/test_config_manager.py  # 單一檔案 TDD
+# Python tests
+uv run pytest tests/ -v
+
+# Python lint
+uv run ruff check src/ tests/
+
+# Frontend lint
+cd frontend && npm run lint
 ```
 
 ### 本地執行
 
 ```bash
-python -m src.main
+# Production mode (uses built frontend)
+uv run simple-edge-tts
+
+# Development mode (uses Vite dev server)
+SIMPLE_EDGE_TTS_DEV=1 uv run simple-edge-tts
+# In a separate terminal:
+cd frontend && npm run dev
 ```
 
-### 打包
+## 技術架構
 
-```bash
-./deploy.sh p2                      # macOS .dmg
-```
-
-### 發佈
-
-```bash
-./deploy.sh v1 0.2.0                # 版號 bump + tag
-git push origin main --tags         # 觸發 CI build + GitHub Release
-```
+- **Frontend**: React + Vite + Tailwind CSS v4 + shadcn/ui
+- **Backend**: Python + PyWebView (IPC via `window.pywebview.api`)
+- **TTS**: Microsoft Edge TTS API (`edge-tts`)
+- **System Tray**: pystray
+- **CI**: GitHub Actions (Python lint + test + frontend build + lint)
 
 ## License
 
