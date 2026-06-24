@@ -52,24 +52,24 @@ class TestSanitizeFilename:
 
 
 class TestTTSEngineVoices:
-    @patch("src.tts_engine.edge_tts.list_voices")
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
     def test_list_voices_returns_list(self, mock_list):
-        mock_list.return_value = asyncio.coroutine(lambda: [
+        mock_list.return_value = [
             {"ShortName": "zh-TW-HsiaoChenNeural", "Locale": "zh-TW", "Gender": "Female"},
             {"ShortName": "en-US-JennyNeural", "Locale": "en-US", "Gender": "Female"},
-        ])()
+        ]
         engine = TTSEngine()
         voices = engine.get_voices_sync()
         assert len(voices) >= 2
 
-    @patch("src.tts_engine.edge_tts.list_voices")
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
     def test_voices_grouped_tw_first(self, mock_list):
         mock_voices = [
             {"ShortName": "en-US-JennyNeural", "Locale": "en-US", "Gender": "Female"},
             {"ShortName": "zh-TW-HsiaoChenNeural", "Locale": "zh-TW", "Gender": "Female"},
             {"ShortName": "ja-JP-NanamiNeural", "Locale": "ja-JP", "Gender": "Female"},
         ]
-        mock_list.return_value = asyncio.coroutine(lambda: mock_voices)()
+        mock_list.return_value = mock_voices
         engine = TTSEngine()
         grouped = engine.get_grouped_voices_sync()
         groups = list(grouped.keys())
