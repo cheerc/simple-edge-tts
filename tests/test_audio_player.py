@@ -1,6 +1,12 @@
-"""Tests for audio_player — state machine: idle→playing→idle, stop, errors."""
+"""Tests for audio_player — state machine: idle→playing→idle, stop, errors.
 
-from unittest.mock import patch
+Replaced PySide6 QMediaPlayer with HTML5 <audio> bridge pattern.
+Python side is a thin bridge; actual playback handled by JS in WebView.
+"""
+
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 from src.audio_player import AudioPlayer, PlayerState
 
 
@@ -11,15 +17,13 @@ class TestPlayerState:
 
     def test_play_changes_state(self):
         player = AudioPlayer()
-        with patch.object(player, "_media_player", create=True), \
-             patch("src.audio_player.Path.exists", return_value=True):
+        with patch("src.audio_player.Path.exists", return_value=True):
             player.play("/fake/path.mp3")
             assert player.state == PlayerState.PLAYING
 
     def test_stop_returns_to_idle(self):
         player = AudioPlayer()
-        with patch.object(player, "_media_player", create=True), \
-             patch("src.audio_player.Path.exists", return_value=True):
+        with patch("src.audio_player.Path.exists", return_value=True):
             player.play("/fake/path.mp3")
             player.stop()
             assert player.state == PlayerState.IDLE
@@ -33,3 +37,112 @@ class TestPlayerState:
         player = AudioPlayer()
         player.play("/nonexistent/file.mp3")
         assert player.state == PlayerState.IDLE
+
+
+class TestWebViewBridge:
+    """Tests for the WebView JS bridge integration."""
+
+    def test_set_webview_window(self):
+        player = AudioPlayer()
+        mock_window = MagicMock()
+        player.set_webview_window(mock_window)
+        assert player._window is mock_window
+
+    def test_play_calls_js_when_window_set(self):
+        player = AudioPlayer()
+        mock_window = MagicMock()
+        player.set_webview_window(mock_window)
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+            mock_window.evaluate_js.assert_called_once()
+            js_call = mock_window.evaluate_js.call_args[0][0]
+            assert "playAudio" in js_call
+
+    def test_stop_calls_js_when_window_set(self):
+        player = AudioPlayer()
+        mock_window = MagicMock()
+        player.set_webview_window(mock_window)
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+            player.stop()
+            mock_window.evaluate_js.assert_called()
+            # Last call should be stopAudio
+            js_call = mock_window.evaluate_js.call_args[0][0]
+            assert "stopAudio" in js_call
+
+    def test_play_without_window_still_tracks_state(self):
+        """Player tracks state even without JS bridge (headless/test mode)."""
+        player = AudioPlayer()
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+            assert player.state == PlayerState.PLAYING
+
+    def test_stop_without_window_still_tracks_state(self):
+        player = AudioPlayer()
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+            player.stop()
+            assert player.state == PlayerState.IDLE
+
+
+class TestCallbacks:
+    """Tests for state change and playback finished callbacks."""
+
+    def test_state_changed_callback(self):
+        player = AudioPlayer()
+        states = []
+        player.on_state_changed = lambda s: states.append(s)
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+            assert states == [PlayerState.PLAYING]
+
+    def test_playback_finished_callback(self):
+        player = AudioPlayer()
+        finished = []
+        player.on_playback_finished = lambda: finished.append(True)
+        player.notify_playback_finished()
+        assert finished == [True]
+        assert player.state == PlayerState.IDLE
+
+    def test_notify_finished_changes_state(self):
+        player = AudioPlayer()
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+            assert player.state == PlayerState.PLAYING
+            player.notify_playback_finished()
+            assert player.state == PlayerState.IDLE
+
+    def test_state_changed_on_stop(self):
+        player = AudioPlayer()
+        states = []
+        player.on_state_changed = lambda s: states.append(s)
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+            player.stop()
+            assert states == [PlayerState.PLAYING, PlayerState.IDLE]
+
+
+class TestFilePath:
+    """Tests for file path handling."""
+
+    def test_play_resolves_path(self):
+        player = AudioPlayer()
+        mock_window = MagicMock()
+        player.set_webview_window(mock_window)
+        with patch("src.audio_player.Path.exists", return_value=True), \
+             patch("src.audio_player.Path.resolve", return_value=Path("/resolved/path.mp3")):
+            player.play("/fake/path.mp3")
+            js_call = mock_window.evaluate_js.call_args[0][0]
+            # Should contain the file path in the JS call
+            assert "path.mp3" in js_call
+
+    def test_current_file_property(self):
+        player = AudioPlayer()
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+            assert player.current_file is not None
+            assert "path.mp3" in str(player.current_file)
+
+    def test_current_file_none_when_idle(self):
+        player = AudioPlayer()
+        assert player.current_file is None
