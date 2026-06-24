@@ -24,6 +24,7 @@
 | `src/i18n.py` | Translation loader, `t("key")` lookup, language switch signal |
 | `src/tts_engine.py` | Wrap edge-tts: list voices, generate audio in QThread |
 | `src/audio_player.py` | Play/stop audio via QMediaPlayer, state machine |
+| `src/update_checker.py` | Check GitHub Releases API for new version on startup |
 | `src/ui/__init__.py` | Package marker |
 | `src/ui/main_window.py` | Main window: splitter layout, title bar, status bar |
 | `src/ui/voice_panel.py` | Left panel: voice combo, search, sliders, folder picker |
@@ -38,6 +39,7 @@
 | `tests/test_ui/test_main_window.py` | Window layout, splitter tests |
 | `tests/test_ui/test_voice_panel.py` | Voice combo, slider, folder picker tests |
 | `tests/test_ui/test_text_panel.py` | Text input, button state, export tests |
+| `tests/test_update_checker.py` | Update check logic, version comparison, skip version tests |
 | `workflow.sh` | Local test runner (t1-t6), interactive menu + CLI dispatch |
 | `deploy.sh` | Packaging script (p1/p2/p3/v1) |
 | `.github/workflows/ci.yml` | PR gate: runs `./workflow.sh t6` |
@@ -849,7 +851,167 @@ git commit -m "feat: audio player with play/stop state machine"
 
 ---
 
-## Task 6: Theme System
+## Task 6: Update Checker (TDD)
+
+**Files:**
+- Create: `src/update_checker.py`
+- Create: `tests/test_update_checker.py`
+
+- [ ] **Step 1: Write tests first**
+
+```python
+"""Tests for update_checker — GitHub Releases version check."""
+
+import json
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from src.update_checker import UpdateChecker, compare_versions
+
+
+class TestCompareVersions:
+    """Test semantic version comparison."""
+
+    def test_newer_version_available(self):
+        assert compare_versions("0.1.0", "0.2.0") is True
+
+    def test_same_version(self):
+        assert compare_versions("0.1.0", "0.1.0") is False
+
+    def test_older_version(self):
+        assert compare_versions("0.2.0", "0.1.0") is False
+
+    def test_major_bump(self):
+        assert compare_versions("0.9.9", "1.0.0") is True
+
+    def test_patch_bump(self):
+        assert compare_versions("0.1.0", "0.1.1") is True
+
+    def test_strips_v_prefix(self):
+        assert compare_versions("0.1.0", "v0.2.0") is True
+
+
+class TestUpdateChecker:
+    """Test update check logic (network mocked)."""
+
+    @patch("src.update_checker.urlopen")
+    def test_newer_version_emits_signal(self, mock_urlopen):
+        response = MagicMock()
+        response.read.return_value = json.dumps({
+            "tag_name": "v0.2.0",
+            "html_url": "https://github.com/cheerc/simple-edge-tts/releases/tag/v0.2.0"
+        }).encode()
+        response.__enter__ = lambda s: s
+        response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = response
+
+        checker = UpdateChecker(current_version="0.1.0")
+        result = checker._check()
+        assert result is not None
+        assert result["latest"] == "0.2.0"
+        assert "releases" in result["url"]
+
+    @patch("src.update_checker.urlopen")
+    def test_same_version_returns_none(self, mock_urlopen):
+        response = MagicMock()
+        response.read.return_value = json.dumps({"tag_name": "v0.1.0"}).encode()
+        response.__enter__ = lambda s: s
+        response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = response
+
+        checker = UpdateChecker(current_version="0.1.0")
+        assert checker._check() is None
+
+    @patch("src.update_checker.urlopen", side_effect=Exception("no internet"))
+    def test_network_error_returns_none(self, mock_urlopen):
+        checker = UpdateChecker(current_version="0.1.0")
+        assert checker._check() is None
+
+    def test_skip_version(self):
+        checker = UpdateChecker(current_version="0.1.0", skip_version="0.2.0")
+        # Even if API returns 0.2.0, skip_version suppresses it
+        assert checker._should_skip("0.2.0") is True
+        assert checker._should_skip("0.3.0") is False
+```
+
+Run: `pytest tests/test_update_checker.py -v`
+Expected: All tests FAIL (module not implemented yet)
+
+- [ ] **Step 2: Implement `src/update_checker.py`**
+
+```python
+"""Check GitHub Releases for new versions on startup."""
+
+import json
+import logging
+from urllib.request import Request, urlopen
+
+from PySide6.QtCore import QThread, Signal
+
+logger = logging.getLogger(__name__)
+
+GITHUB_API_URL = "https://api.github.com/repos/cheerc/simple-edge-tts/releases/latest"
+
+
+def compare_versions(current: str, latest: str) -> bool:
+    """Return True if latest is newer than current (semver)."""
+    def parse(v: str) -> tuple[int, ...]:
+        return tuple(int(x) for x in v.lstrip("v").split("."))
+    return parse(latest) > parse(current)
+
+
+class UpdateChecker(QThread):
+    """Background thread that checks GitHub for a newer release."""
+
+    update_available = Signal(dict)  # {"latest": str, "url": str}
+
+    def __init__(self, current_version: str, skip_version: str | None = None):
+        super().__init__()
+        self.current_version = current_version
+        self.skip_version = skip_version
+
+    def _should_skip(self, version: str) -> bool:
+        """Return True if this version should be suppressed."""
+        return self.skip_version is not None and version.lstrip("v") == self.skip_version
+
+    def _check(self) -> dict | None:
+        """Fetch latest release info. Returns dict or None."""
+        try:
+            req = Request(GITHUB_API_URL, headers={"User-Agent": "simple-edge-tts"})
+            with urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            tag = data.get("tag_name", "")
+            latest = tag.lstrip("v")
+            if compare_versions(self.current_version, latest):
+                return {
+                    "latest": latest,
+                    "url": data.get("html_url", GITHUB_API_URL),
+                }
+        except Exception:
+            logger.debug("Update check failed", exc_info=True)
+        return None
+
+    def run(self):
+        """QThread entry point."""
+        result = self._check()
+        if result and not self._should_skip(result["latest"]):
+            self.update_available.emit(result)
+```
+
+Run: `pytest tests/test_update_checker.py -v`
+Expected: All tests PASS
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/update_checker.py tests/test_update_checker.py
+git commit -m "feat: update checker — GitHub Releases version check on startup"
+```
+
+---
+
+## Task 7: Theme System
 
 **Files:**
 - Create: `src/ui/__init__.py`
@@ -1059,7 +1221,7 @@ git commit -m "feat: light/dark theme QSS following OS color scheme"
 
 ---
 
-## Task 7: UI — Voice Panel
+## Task 8: UI — Voice Panel
 
 **Files:**
 - Create: `src/ui/voice_panel.py`
@@ -1271,7 +1433,7 @@ git commit -m "feat: voice panel with search, rate/pitch sliders, folder picker"
 
 ---
 
-## Task 8: UI — Text Panel
+## Task 9: UI — Text Panel
 
 **Files:**
 - Create: `src/ui/text_panel.py`
@@ -1445,7 +1607,7 @@ git commit -m "feat: text panel with preview/stop/export buttons and status"
 
 ---
 
-## Task 9: Main Window Assembly
+## Task 10: Main Window Assembly
 
 **Files:**
 - Create: `src/ui/main_window.py`
@@ -1787,7 +1949,7 @@ git commit -m "feat: main window with splitter layout, TTS worker, and language 
 
 ---
 
-## Task 10: workflow.sh — Local Test Runner
+## Task 11: workflow.sh — Local Test Runner
 
 **Files:**
 - Create: `workflow.sh`
@@ -1888,7 +2050,7 @@ git commit -m "ci: add workflow.sh local test runner (t1-t6)"
 
 ---
 
-## Task 11: deploy.sh — Packaging Script
+## Task 12: deploy.sh — Packaging Script
 
 **Files:**
 - Create: `deploy.sh`
@@ -2002,7 +2164,7 @@ git commit -m "ci: add deploy.sh packaging script (p1/p2/p3/v1)"
 
 ---
 
-## Task 12: GitHub Actions Workflows
+## Task 13: GitHub Actions Workflows
 
 **Files:**
 - Create: `.github/workflows/ci.yml`
@@ -2168,7 +2330,7 @@ git commit -m "ci: add PR gate workflow, release build, PR template, gitleaks ho
 
 ---
 
-## Task 13: Release Skill (AgEnD)
+## Task 14: Release Skill (AgEnD)
 
 **Files:**
 - Create: `/Users/cheerc/agend-customization/team-skills/simple-edge-tts/set-release/SKILL.md`
@@ -2221,7 +2383,7 @@ git push
 
 ---
 
-## Task 14: Manual Smoke Test
+## Task 15: Manual Smoke Test
 
 - [ ] **Step 1: Run full workflow check**
 
