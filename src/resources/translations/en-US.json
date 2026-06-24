@@ -37,5 +37,8 @@
   "about": "About",
   "about_description": "Cross-platform text-to-speech desktop app powered by Edge TTS",
   "status_playing": "Playing...",
-  "status_saving": "Saving..."
+  "status_saving": "Saving...",
+  "theme_light": "Light Mode",
+  "theme_dark": "Dark Mode",
+  "theme_toggle": "Toggle theme"
 }
