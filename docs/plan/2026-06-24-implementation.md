@@ -126,22 +126,96 @@ if __name__ == "__main__":
 ```markdown
 # simple-edge-tts
 
-Cross-platform desktop app for Microsoft Edge text-to-speech. Select a voice, type your text, preview, and export as MP3.
+跨平台桌面文字轉語音工具 — Cross-platform desktop text-to-speech app
 
-## Features
+使用 Microsoft Edge TTS API，選擇聲音、輸入文字、即時預聽、匯出 MP3。
 
-- 🎙️ 300+ voices from Microsoft Edge TTS
-- 🇹🇼 Traditional Chinese & English UI
-- 🎚️ Adjustable rate and pitch
-- 🌗 Dark/Light theme (follows system)
-- 💾 Export to MP3
+<!-- TODO: add screenshot after v0.1.0 release -->
+
+## 下載 Download
+
+👉 [最新版本 Latest Release](https://github.com/cheerc/simple-edge-tts/releases/latest)
+
+| 平台 | 檔案 | 說明 |
+|---|---|---|
+| Windows | `simple-edge-tts.exe` | 下載後直接執行，免安裝 |
+| macOS | `simple-edge-tts.dmg` | 打開 DMG，拖到 Applications |
+
+## ⚠️ 首次執行安全性說明
+
+### macOS
+
+首次開啟時，macOS 會顯示「無法打開，因為無法驗證開發者」。
+
+**解決方式**（擇一）：
+1. 在 Finder 中找到 app → **右鍵** →「**開啟**」→ 確認
+2. 終端機執行：`xattr -cr /Applications/simple-edge-tts.app`
+
+### Windows
+
+首次執行時，SmartScreen 會顯示「Windows 已保護您的電腦」。
+
+**解決方式**：點擊「**其他資訊**」→「**仍要執行**」
+
+## 使用方式
+
+1. **選擇聲音** — 左側面板搜尋並選擇語音（預設台灣中文）
+2. **輸入文字** — 右側面板輸入要轉換的文字
+3. **預聽或匯出** — 點擊 ▶ 試聽 或 💾 匯出 MP3
+
+## 功能 Features
+
+- 🎙️ 300+ 聲音（Microsoft Edge TTS）
+- 🇹🇼 繁體中文 & English 介面切換
+- 🎚️ 語速 / 音調 調整
+- 🌗 深色 / 淺色主題（跟隨系統）
+- 💾 匯出 MP3
+- 🔄 自動檢查更新
 - 🖥️ macOS + Windows
 
-## Development
+## 系統需求
+
+- Windows 10+ 或 macOS 12+
+- 網路連線（TTS API 需要連線）
+
+---
+
+## 開發 Development
+
+### 環境設定
 
 ```bash
+git clone https://github.com/cheerc/simple-edge-tts.git
+cd simple-edge-tts
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-pytest
+```
+
+### 測試
+
+```bash
+./workflow.sh t6                    # 完整測試（mypy + ruff + pytest）
+./workflow.sh t4-file tests/test_config_manager.py  # 單一檔案 TDD
+```
+
+### 本地執行
+
+```bash
+python -m src.main
+```
+
+### 打包
+
+```bash
+./deploy.sh p2                      # macOS .dmg
+```
+
+### 發佈
+
+```bash
+./deploy.sh v1 0.2.0                # 版號 bump + tag
+git push origin main --tags         # 觸發 CI build + GitHub Release
 ```
 
 ## License
