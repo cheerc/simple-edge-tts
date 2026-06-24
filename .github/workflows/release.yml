@@ -57,13 +57,18 @@ jobs:
             -ov -format UDZO \
             dist/simple-edge-tts.dmg
 
+      - name: Create .zip (Windows)
+        if: matrix.platform == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/simple-edge-tts -DestinationPath dist/simple-edge-tts-windows.zip
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: |
             dist/simple-edge-tts.dmg
-            dist/simple-edge-tts/
+            dist/simple-edge-tts-windows.zip
           if-no-files-found: warn
 
   release:
@@ -88,5 +93,5 @@ jobs:
           prerelease: false
           files: |
             artifacts/**/*.dmg
-            artifacts/**/*.exe
+            artifacts/**/*.zip
           generate_release_notes: true
