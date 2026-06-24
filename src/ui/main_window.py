@@ -1,6 +1,7 @@
 """Main window: left-right splitter layout with voice panel and text panel."""
 
 import asyncio
+import re
 import tempfile
 from pathlib import Path
 
@@ -46,6 +47,8 @@ class TTSWorker(QThread):
 
 class MainWindow(QMainWindow):
     """Main application window with left-right split layout."""
+
+    language_changed = Signal(str)
 
     def __init__(self, i18n: I18n, config: ConfigManager, parent=None):
         super().__init__(parent)
@@ -110,17 +113,19 @@ class MainWindow(QMainWindow):
         rate = self._config.get("rate")
         if rate:
             try:
-                val = int(rate.replace("%", "").replace("+", ""))
+                val = int(re.sub(r'[%+]', '', str(rate)))
+                val = max(-50, min(100, val))
                 self._voice_panel._rate_slider.setValue(val)
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
 
         pitch = self._config.get("pitch")
         if pitch:
             try:
-                val = int(pitch.replace("Hz", "").replace("+", ""))
+                val = int(re.sub(r'[Hz+]', '', str(pitch)))
+                val = max(-50, min(50, val))
                 self._voice_panel._pitch_slider.setValue(val)
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
 
     def _on_preview(self):
@@ -184,6 +189,11 @@ class MainWindow(QMainWindow):
         self._lang_btn.setText(self._i18n.t("lang_toggle"))
         self.setWindowTitle(self._i18n.t("app_title"))
         self.statusBar().showMessage(self._i18n.t("status_ready"))
+        self.language_changed.emit(new_lang)
+
+    def _on_open_settings(self):
+        """Open settings dialog. Placeholder for SystemTrayManager integration."""
+        pass
 
     def closeEvent(self, event):
         self._config.set("rate", format_rate(self._voice_panel.rate_value()))
