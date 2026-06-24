@@ -44,6 +44,7 @@
 | `.github/workflows/build.yml` | Release build: tag v* → exe + dmg |
 | `.github/PULL_REQUEST_TEMPLATE.md` | PR checklist template |
 | `.pre-commit-config.yaml` | gitleaks secret scanning hook |
+| *(external)* `agend-customization/team-skills/simple-edge-tts/set-release/SKILL.md` | AgEnD release skill: version bump → tag → CI build → verify Release |
 
 ---
 
@@ -2167,7 +2168,60 @@ git commit -m "ci: add PR gate workflow, release build, PR template, gitleaks ho
 
 ---
 
-## Task 13: Manual Smoke Test
+## Task 14: Release Skill (AgEnD)
+
+**Files:**
+- Create: `/Users/cheerc/agend-customization/team-skills/simple-edge-tts/set-release/SKILL.md`
+
+> This file lives outside the project repo, in the shared agend-customization directory.
+> Pattern reference: `/Users/cheerc/agend-customization/team-skills/classroombooking/cb-release/SKILL.md`
+
+- [ ] **Step 1: Verify skill file exists**
+
+The skill was already created at:
+`/Users/cheerc/agend-customization/team-skills/simple-edge-tts/set-release/SKILL.md`
+
+Run: `cat /Users/cheerc/agend-customization/team-skills/simple-edge-tts/set-release/SKILL.md | head -5`
+Expected:
+```
+---
+name: set-release
+description: simple-edge-tts release 程序...
+```
+
+- [ ] **Step 2: Verify skill is discoverable by agend**
+
+Check that the skill appears in the agent's available skills list. If not, register it in the appropriate `skills.json`.
+
+- [ ] **Step 3: Dry-run the skill flow** (without actually pushing)
+
+Verify each step works:
+```bash
+cd /Users/cheerc/agend-ws/agy-424af9/simple-edge-tts
+
+# Step 0: pre-flight
+git status --porcelain
+./workflow.sh t6
+
+# Step 1: check current version
+python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+
+# Step 3: verify gh cli works for release queries
+gh release list --limit 1
+```
+
+- [ ] **Step 4: Commit skill to agend-customization**
+
+```bash
+cd /Users/cheerc/agend-customization
+git add team-skills/simple-edge-tts/
+git commit -m "feat(simple-edge-tts): add set-release skill for cross-platform desktop app release"
+git push
+```
+
+---
+
+## Task 15: Manual Smoke Test
 
 - [ ] **Step 1: Run full workflow check**
 
