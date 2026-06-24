@@ -19,10 +19,12 @@ import { Toast } from "./components/Toast";
 import { SettingsModal } from "./components/SettingsModal";
 import { useApi } from "./hooks/useApi";
 import { useToast } from "./hooks/useToast";
+import { useI18n } from "./hooks/useI18n";
 
 function App() {
   const api = useApi();
   const { toasts, addToast, removeToast } = useToast();
+  const { t, language, setLanguage } = useI18n(api);
 
   // Lifted state
   const [selectedVoice, setSelectedVoice] = useState("zh-TW-HsiaoChenNeural");
@@ -49,14 +51,14 @@ function App() {
         addToast(result.error, "error");
       } else if (result.path) {
         await api.playAudio(result.path);
-        addToast("Playing audio", "success");
+        addToast(t("status_playing"), "success");
       }
     } catch (err) {
       addToast(err instanceof Error ? err.message : "TTS generation failed", "error");
     } finally {
       setSpeaking(false);
     }
-  }, [text, selectedVoice, speed, api, addToast, speedToRate]);
+  }, [text, selectedVoice, speed, api, addToast, speedToRate, t]);
 
   const handleSave = useCallback(async () => {
     if (!text.trim() || !api.ready) return;
@@ -87,7 +89,7 @@ function App() {
       }}
     >
       {/* Header — full width */}
-      <Header onSettingsClick={() => setSettingsOpen(true)} />
+      <Header onSettingsClick={() => setSettingsOpen(true)} t={t} />
 
       {/* Main content — 2-column layout */}
       <div
@@ -123,13 +125,14 @@ function App() {
                 margin: 0,
               }}
             >
-              Voice Selection
+              {t("voice_selection")}
             </h2>
           </div>
           <VoiceSelector
             api={api}
             selectedVoice={selectedVoice}
             onVoiceChange={setSelectedVoice}
+            t={t}
           />
         </div>
 
@@ -160,7 +163,7 @@ function App() {
                 margin: 0,
               }}
             >
-              Text Input
+              {t("text_input")}
             </h2>
           </div>
 
@@ -168,7 +171,7 @@ function App() {
             className="flex flex-col flex-1"
             style={{ padding: "var(--space-5)" }}
           >
-            <TextEditor text={text} onTextChange={setText} />
+            <TextEditor text={text} onTextChange={setText} t={t} />
           </div>
 
           <ActionBar
@@ -179,6 +182,7 @@ function App() {
             speaking={speaking}
             saving={saving}
             disabled={!text.trim() || !api.ready}
+            t={t}
           />
         </div>
       </div>
@@ -201,6 +205,9 @@ function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         api={api}
+        t={t}
+        language={language}
+        onLanguageChange={setLanguage}
       />
 
       {/* Toast system */}

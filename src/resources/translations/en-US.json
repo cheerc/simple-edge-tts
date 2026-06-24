@@ -31,5 +31,11 @@
   "show_main": "Show Main Window",
   "exit": "Exit",
   "export_success_title": "Export Complete",
-  "export_success_msg": "File exported to: {path}"
+  "export_success_msg": "File exported to: {path}",
+  "text_input": "Text Input",
+  "speed": "Speed",
+  "about": "About",
+  "about_description": "Cross-platform text-to-speech desktop app powered by Edge TTS",
+  "status_playing": "Playing...",
+  "status_saving": "Saving..."
 }

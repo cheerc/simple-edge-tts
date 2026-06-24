@@ -18,6 +18,7 @@ interface ActionBarProps {
   speaking: boolean;
   saving: boolean;
   disabled: boolean;
+  t: (key: string) => string;
 }
 
 export function ActionBar({
@@ -28,6 +29,7 @@ export function ActionBar({
   speaking,
   saving,
   disabled,
+  t,
 }: ActionBarProps) {
   return (
     <div
@@ -53,7 +55,7 @@ export function ActionBar({
             whiteSpace: "nowrap",
           }}
         >
-          Speed
+          {t("speed")}
         </label>
         <input
           id="speed-slider"
@@ -124,7 +126,7 @@ export function ActionBar({
           aria-busy={speaking}
         >
           {speaking && <Loader2 size={16} className="animate-spin" />}
-          {speaking ? "Speaking..." : "Speak"}
+          {speaking ? t("status_generating") : t("preview")}
         </button>
 
         {/* Save button — secondary outline */}
@@ -165,7 +167,7 @@ export function ActionBar({
           aria-busy={saving}
         >
           {saving && <Loader2 size={16} className="animate-spin" />}
-          {saving ? "Saving..." : "Save As..."}
+          {saving ? t("status_saving") : t("export_mp3")}
         </button>
       </div>
     </div>
