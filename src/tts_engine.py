@@ -4,7 +4,6 @@ import asyncio
 import re
 from collections import OrderedDict
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import edge_tts

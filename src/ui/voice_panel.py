@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Signal, Qt, QThread
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QComboBox, QLineEdit,
-    QSlider, QLabel, QHBoxLayout, QPushButton, QFileDialog,
+    QSlider, QLabel, QPushButton, QFileDialog,
 )
 
 from src.i18n import I18n

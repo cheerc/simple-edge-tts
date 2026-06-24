@@ -2,9 +2,8 @@
 
 from pathlib import Path
 import pytest
-from unittest.mock import MagicMock
-from PySide6.QtCore import Signal, QObject
-from PySide6.QtWidgets import QMainWindow, QSystemTrayIcon
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QMainWindow
 from src.ui.system_tray import SystemTrayManager
 from src.i18n import I18n
 

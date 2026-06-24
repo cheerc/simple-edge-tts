@@ -1,7 +1,6 @@
 """Tests for audio_player — state machine: idle→playing→idle, stop, errors."""
 
-from unittest.mock import MagicMock, patch
-import pytest
+from unittest.mock import patch
 from src.audio_player import AudioPlayer, PlayerState
 
 

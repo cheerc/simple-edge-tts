@@ -1,7 +1,6 @@
 """Tests for config_manager — read/write config, defaults, corrupt file recovery."""
 
 import json
-import pytest
 from src.config_manager import ConfigManager
 
 

@@ -1,7 +1,6 @@
 """Tests for text_panel — text input, button states, signals."""
 
 import pytest
-from PySide6.QtCore import Qt
 from src.ui.text_panel import TextPanel
 from src.i18n import I18n
 from pathlib import Path
