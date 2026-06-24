@@ -20,12 +20,18 @@ jobs:
 
       - uses: astral-sh/setup-uv@v4
 
-      - name: Install dependencies
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
         run: uv sync --all-extras
 
       - name: Lint (ruff)
         run: uv run ruff check src/ tests/
 
+      # PySide6 still in transitional deps (used by existing UI tests via pytest-qt).
+      # Qt system libs required until PySide6 is fully removed (post-T20).
       - name: Install Qt dependencies
         run: sudo apt-get update && sudo apt-get install -y libgl1 libegl1 libpulse0
 
@@ -46,3 +52,15 @@ jobs:
             echo "Tests failed with exit code $rc"
             exit $rc
           fi
+
+      - name: Frontend — install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend — build (TypeScript + Vite)
+        working-directory: frontend
+        run: npm run build
+
+      - name: Frontend — lint (oxlint)
+        working-directory: frontend
+        run: npm run lint

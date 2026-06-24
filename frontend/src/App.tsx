@@ -16,6 +16,7 @@ import { VoiceSelector } from "./components/VoiceSelector";
 import { TextEditor } from "./components/TextEditor";
 import { ActionBar } from "./components/ActionBar";
 import { Toast } from "./components/Toast";
+import { SettingsModal } from "./components/SettingsModal";
 import { useApi } from "./hooks/useApi";
 import { useToast } from "./hooks/useToast";
 
@@ -29,6 +30,7 @@ function App() {
   const [speed, setSpeed] = useState(1.0);
   const [speaking, setSpeaking] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Convert speed multiplier to API percentage: (multiplier - 1.0) × 100
   const speedToRate = useCallback((multiplier: number): number => {
@@ -85,7 +87,7 @@ function App() {
       }}
     >
       {/* Header — full width */}
-      <Header />
+      <Header onSettingsClick={() => setSettingsOpen(true)} />
 
       {/* Main content — 2-column layout */}
       <div
@@ -193,6 +195,13 @@ function App() {
           }
         }
       `}</style>
+
+      {/* Settings modal */}
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        api={api}
+      />
 
       {/* Toast system */}
       <Toast toasts={toasts} onRemove={removeToast} />
