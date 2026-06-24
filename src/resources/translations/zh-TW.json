@@ -15,11 +15,21 @@
   "status_generating": "產生語音中...",
   "status_playing": "播放中...",
   "status_exported": "匯出完成：{filename}",
+  "status_loading_voices": "載入聲音列表中...",
   "error_no_internet": "無法連線到 TTS 服務，請檢查網路連線",
   "error_export_failed": "匯出失敗：{error}",
   "error_folder_not_writable": "無法寫入資料夾，請選擇其他位置",
   "voice_group_tw": "台灣中文",
   "voice_group_en": "English",
   "voice_group_other": "其他",
-  "lang_toggle": "EN"
+  "lang_toggle": "EN",
+  "settings": "設定",
+  "settings_title": "系統設定",
+  "language": "語言 (Language)",
+  "save": "儲存",
+  "cancel": "取消",
+  "show_main": "顯示主視窗",
+  "exit": "結束",
+  "export_success_title": "匯出完成",
+  "export_success_msg": "檔案已匯出至：{path}"
 }
