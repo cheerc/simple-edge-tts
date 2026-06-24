@@ -1,85 +1,103 @@
-"""System tray icon manager. Enables minimize-to-tray and notifications.
+"""System tray icon manager using pystray.
 
-F3 fix: all imports at module top.
-F4 fix: public is_visible() method instead of exposing _tray_icon.
+Replaces PySide6 QSystemTrayIcon with cross-platform pystray.
+Runs in a detached background thread via pystray's run_detached().
+
+Ref: T20 — Replace PySide6 QSystemTrayIcon with pystray
 """
 
+import threading
 from pathlib import Path
+from typing import Any, Callable, Optional
 
-from PySide6.QtCore import QObject
-from PySide6.QtGui import QIcon, QAction
-from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QApplication, QStyle
-
-from src.i18n import I18n
+from PIL import Image, ImageDraw
+from pystray import Icon, Menu, MenuItem
 
 
-class SystemTrayManager(QObject):
-    """Manages QSystemTrayIcon lifecycle and interactions."""
-    def __init__(self, main_window, i18n: I18n, parent=None):
-        super().__init__(parent)
-        self._main_window = main_window
-        self._i18n = i18n
+def _create_default_icon(size: int = 64) -> Image.Image:
+    """Create a simple default tray icon when no icon file is available.
 
-        # Setup icon
-        icon_path = Path(__file__).parent.parent / "resources" / "icons" / "icon.png"
-        if icon_path.exists():
-            icon = QIcon(str(icon_path))
-        else:
-            icon = QApplication.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+    Draws a blue circle with a white 'S' shape to represent Simple Edge TTS.
+    """
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    # Blue circle background
+    draw.ellipse([2, 2, size - 2, size - 2], fill=(66, 133, 244, 255))
+    # White inner accent
+    inner = size // 4
+    draw.ellipse(
+        [inner, inner, size - inner, size - inner],
+        fill=(255, 255, 255, 255),
+    )
+    return image
 
-        self._tray_icon = QSystemTrayIcon(icon, self)
-        self._tray_icon.setToolTip(self._i18n.t("app_title"))
 
-        self._setup_menu()
-        self._tray_icon.activated.connect(self._on_activated)
-        self._tray_icon.show()
+def _load_icon() -> Image.Image:
+    """Load the app icon from resources, falling back to a generated icon."""
+    icon_path = Path(__file__).parent.parent / "resources" / "icons" / "icon.png"
+    if icon_path.exists():
+        return Image.open(icon_path)
+    return _create_default_icon()
 
-        # Connect to main window language changes to update tray
-        self._main_window.language_changed.connect(self._on_language_changed)
 
-    def _setup_menu(self):
-        menu = QMenu()
+class SystemTrayManager:
+    """Manages pystray system tray icon lifecycle and interactions.
 
-        self._show_action = QAction(self._i18n.t("show_main"), self)
-        self._show_action.triggered.connect(self._restore_main_window)
-        menu.addAction(self._show_action)
+    Args:
+        window: A pywebview window object with show()/hide() methods.
+        on_quit: Optional callback invoked when user selects Quit.
+    """
 
-        self._settings_action = QAction(self._i18n.t("settings"), self)
-        self._settings_action.triggered.connect(self._main_window._on_open_settings)
-        menu.addAction(self._settings_action)
+    def __init__(
+        self,
+        window: Any,
+        on_quit: Optional[Callable[[], None]] = None,
+    ) -> None:
+        self._window = window
+        self._on_quit = on_quit
+        self._visible = True
+        self._icon: Optional[Icon] = None
+        self._lock = threading.Lock()
 
-        menu.addSeparator()
+    def start(self) -> None:
+        """Create and start the tray icon in a detached thread."""
+        image = _load_icon()
+        menu = Menu(
+            MenuItem("Show/Hide", self._toggle_window, default=True),
+            Menu.SEPARATOR,
+            MenuItem("Quit", self._quit),
+        )
+        self._icon = Icon(
+            name="simple-edge-tts",
+            icon=image,
+            title="Simple Edge TTS",
+            menu=menu,
+        )
+        self._icon.run_detached()
 
-        self._exit_action = QAction(self._i18n.t("exit"), self)
-        self._exit_action.triggered.connect(self._quit_application)
-        menu.addAction(self._exit_action)
-
-        self._tray_icon.setContextMenu(menu)
-
-    def _on_activated(self, reason):
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            if self._main_window.isVisible():
-                self._main_window.hide()
-            else:
-                self._restore_main_window()
-
-    def _restore_main_window(self):
-        self._main_window.showNormal()
-        self._main_window.activateWindow()
-
-    def _quit_application(self):
-        self._tray_icon.hide()
-        QApplication.quit()
+    def stop(self) -> None:
+        """Stop and remove the tray icon."""
+        with self._lock:
+            if self._icon is not None:
+                self._icon.stop()
+                self._icon = None
 
     def is_visible(self) -> bool:
-        """F4 fix: public method to check tray visibility."""
-        return self._tray_icon.isVisible()
+        """Return whether the tray icon is currently running."""
+        with self._lock:
+            return self._icon is not None
 
-    def show_notification(self, title: str, message: str):
-        self._tray_icon.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 3000)
+    def _toggle_window(self, icon: Icon, item: MenuItem) -> None:
+        """Toggle the PyWebView window visibility."""
+        if self._visible:
+            self._window.hide()
+            self._visible = False
+        else:
+            self._window.show()
+            self._visible = True
 
-    def _on_language_changed(self):
-        self._tray_icon.setToolTip(self._i18n.t("app_title"))
-        self._show_action.setText(self._i18n.t("show_main"))
-        self._settings_action.setText(self._i18n.t("settings"))
-        self._exit_action.setText(self._i18n.t("exit"))
+    def _quit(self, icon: Icon, item: MenuItem) -> None:
+        """Quit the application gracefully."""
+        self.stop()
+        if self._on_quit is not None:
+            self._on_quit()
