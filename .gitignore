@@ -33,3 +33,7 @@ Thumbs.db
 *.exe
 *.dmg
 *.app/
+
+# Graphify (knowledge graph tool output)
+graphify-out/
+.graphify*
