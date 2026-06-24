@@ -4,7 +4,10 @@ Launches a PyWebView window that loads the React frontend (Vite dev server
 in development, built assets in production). Python backend is exposed to
 JavaScript via the Api class (window.pywebview.api.*).
 
+System tray icon (pystray) provides Show/Hide + Quit controls.
+
 Ref: T16 — PyWebView entry point + IPC bridge
+Ref: T20 — System tray via pystray
 """
 
 import os
@@ -17,6 +20,7 @@ from src.audio_player import AudioPlayer
 from src.config_manager import ConfigManager
 from src.i18n import I18n
 from src.tts_engine import TTSEngine
+from src.ui.system_tray import SystemTrayManager
 
 TRANSLATIONS_DIR = Path(__file__).parent / "resources" / "translations"
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist" / "index.html"
@@ -69,7 +73,17 @@ def main():
     # Wire AudioPlayer to the webview window for JS bridge communication
     audio_player.set_webview_window(window)
 
-    webview.start()
+    # Ref: T20 — System tray (pystray): Show/Hide window, Quit app
+    tray = SystemTrayManager(
+        window=window,
+        on_quit=lambda: window.destroy(),
+    )
+
+    def _on_webview_loaded():
+        """Start the tray icon once the webview window is ready."""
+        tray.start()
+
+    webview.start(func=_on_webview_loaded)
 
 
 if __name__ == "__main__":
