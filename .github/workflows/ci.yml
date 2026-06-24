@@ -27,7 +27,7 @@ jobs:
         run: uv run ruff check src/ tests/
 
       - name: Install Qt dependencies
-        run: sudo apt-get update && sudo apt-get install -y xvfb libgl1 libegl1
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgl1 libegl1 libpulse0
 
       - name: Test (pytest)
         run: xvfb-run uv run pytest tests/ -v
