@@ -36,7 +36,7 @@ def make_output_filename(text: str) -> str:
 class TTSEngine:
     """Synchronous-facing wrapper around async edge-tts."""
 
-    def get_voices_sync(self) -> list[dict[str, Any]]:
+    def get_voices_sync(self) -> list[Any]:
         return asyncio.run(edge_tts.list_voices())
 
     def get_grouped_voices_sync(self) -> OrderedDict[str, list[dict]]:
