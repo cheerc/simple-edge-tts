@@ -2102,9 +2102,31 @@ jobs:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log "${PREV_TAG}..HEAD" --oneline --no-decorate)
+          else
+            CHANGES=$(git log --oneline --no-decorate -20)
+          fi
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
       - uses: actions/download-artifact@v4
       - uses: softprops/action-gh-release@v2
         with:
+          body: |
+            ## Changes
+            ${{ steps.changelog.outputs.CHANGELOG }}
+
+            ## Download
+            - **Windows**: `simple-edge-tts.exe`
+            - **macOS**: `simple-edge-tts.dmg` (right-click → Open to bypass Gatekeeper)
           files: |
             windows-exe/simple-edge-tts.exe
             macos-dmg/simple-edge-tts.dmg
@@ -2116,13 +2138,14 @@ jobs:
 ## What
 <!-- Brief description of changes -->
 ## Why
-<!-- Motivation / issue reference -->
+<!-- Motivation / issue reference (use Closes #N or Refs #N) -->
 ## How
 <!-- Implementation approach -->
 ## Checklist
 - [ ] `./workflow.sh t6` passes (full run)
 - [ ] New tests added for new functionality
 - [ ] No secrets or credentials in code
+- [ ] Issue linked in PR body (Closes/Refs)
 ```
 
 - [ ] **Step 4: Create `.pre-commit-config.yaml`**
@@ -2169,11 +2192,11 @@ Type text → click ▶ 試聽 → audio plays through speakers
 
 Type text → click 💾 匯出 MP3 → file saved to output folder
 
-- [ ] **Step 6: Final commit and tag**
+- [ ] **Step 6: Release via deploy.sh**
 
 ```bash
-git add -A
-git commit -m "chore: ready for v0.1.0 release"
-git tag v0.1.0
+./deploy.sh v1 0.1.0
 git push origin main --tags
 ```
+
+Expected: GitHub Actions `build.yml` triggers, builds both platforms, creates Release with changelog + binaries
