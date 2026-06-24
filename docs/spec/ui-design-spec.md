@@ -1,6 +1,6 @@
 # Simple Edge TTS — UI Design Specification
 
-> **Status**: Draft v2 — addressing reviewer REJECTED findings (contrast, popover, radius-full)
+> **Status**: Implemented (v0.1.0) — React + PyWebView
 > **Decision**: d-11 (Light Cream + Coral + Wide, operator confirmed)
 > **Framework**: PyWebView + React (Vite + Tailwind CSS + shadcn/ui)
 > **Target**: Desktop app (macOS / Windows), fixed landscape window ~1200×750
@@ -277,6 +277,10 @@ This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
 | Range | 0.5× – 2.0× |
 | Step | 0.1 |
 
+> **Implementation note**: Only the speed slider is implemented in v0.1.0.
+> Pitch control is supported by the backend API (`generate_tts(rate, pitch)`) but
+> the frontend ActionBar does not include a pitch slider yet (deferred).
+
 ### 3.9 Action Bar
 
 | Property | Value |
@@ -287,9 +291,12 @@ This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
 | Border radius | bottom `--radius-xl` |
 | Padding | `--space-3 --space-5` |
 | Layout | `flex, align-items: center, justify-content: space-between` |
-| Left group | Speed slider (w: 200px) + Format select (w: 120px) |
+| Left group | Speed slider (w: 200px) |
 | Right group | [Speak] primary button + [Save As...] secondary button |
 | Gap | `--space-4` between elements |
+
+> **Implementation note**: Format select was omitted — `api.py generate_tts()` has no
+> `format` parameter (output is always MP3). Will be added when backend supports format selection.
 
 ### 3.10 Settings Modal
 
@@ -447,6 +454,10 @@ This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
 }
 ```
 
+> **Implementation note**: In Tailwind v4, `@theme inline` in `index.css` replaces
+> `tailwind.config.ts`. All design tokens are defined directly as CSS custom properties
+> in `frontend/src/index.css`, not in a separate config file.
+
 ---
 
 ## 7. Implementation Notes
@@ -500,7 +511,31 @@ Map design tokens to shadcn/ui's CSS variable convention (`--background`, `--for
 | Header Bar | T18 | — |
 | Voice Selector (Language + Voice dropdowns) | T18 | T16 (IPC for voice list) |
 | Text Editor (textarea + char count) | T18 | — |
-| Action Bar (slider + format + buttons) | T18 | T16 (IPC for TTS) |
+| Action Bar (slider + buttons) | T18 | T16 (IPC for TTS) |
 | Settings Modal | T19 | T16 (IPC for config) |
 | Toast System | T18 | — |
 | System Tray | T20 | pystray |
+| i18n (live switching) | Hotfix | T16 (IPC), T19 (Settings) |
+
+---
+
+## 8. Current Implementation Status
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| 2-column layout (40/60) | ✅ Implemented | T18 |
+| Header bar + settings gear | ✅ Implemented | T18, T19 |
+| Voice selection (language + voice) | ✅ Implemented | T18 |
+| Text editor + char count | ✅ Implemented | T18 |
+| Speed slider (0.5×–2.0×) | ✅ Implemented | T18 |
+| Speak / Save buttons | ✅ Implemented | T18 |
+| Toast notifications | ✅ Implemented | T18 |
+| Settings modal | ✅ Implemented | T19 |
+| System tray (pystray) | ✅ Implemented | T20 |
+| i18n live switching | ✅ Implemented | Hotfix |
+| CI frontend build + lint | ✅ Implemented | T21 |
+| Pitch slider | ❌ Deferred | Backend supports, no UI |
+| Format selection | ❌ Deferred | Backend MP3 only |
+| Dark/light theme | ❌ Deferred | — |
+| Auto-update | ❌ Deferred | — |
+| Responsive stacking (<1000px) | ✅ Implemented | T18 |
