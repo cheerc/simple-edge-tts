@@ -20,11 +20,13 @@ import { SettingsModal } from "./components/SettingsModal";
 import { useApi } from "./hooks/useApi";
 import { useToast } from "./hooks/useToast";
 import { useI18n } from "./hooks/useI18n";
+import { useTheme } from "./hooks/useTheme";
 
 function App() {
   const api = useApi();
   const { toasts, addToast, removeToast } = useToast();
   const { t, language, setLanguage } = useI18n(api);
+  const { toggleTheme, isDark } = useTheme();
 
   // Lifted state
   const [selectedVoice, setSelectedVoice] = useState("zh-TW-HsiaoChenNeural");
@@ -89,7 +91,7 @@ function App() {
       }}
     >
       {/* Header — full width */}
-      <Header onSettingsClick={() => setSettingsOpen(true)} t={t} />
+      <Header onSettingsClick={() => setSettingsOpen(true)} onThemeToggle={toggleTheme} isDark={isDark} t={t} />
 
       {/* Main content — 2-column layout */}
       <div

@@ -37,5 +37,8 @@
   "about": "關於",
   "about_description": "跨平台 Edge TTS 語音合成桌面應用程式",
   "status_playing": "播放中...",
-  "status_saving": "儲存中..."
+  "status_saving": "儲存中...",
+  "theme_light": "淺色模式",
+  "theme_dark": "深色模式",
+  "theme_toggle": "切換主題"
 }

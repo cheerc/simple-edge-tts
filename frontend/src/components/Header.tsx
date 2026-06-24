@@ -1,20 +1,23 @@
 /**
  * Header bar component.
  *
- * Height 48px, app name left, settings gear right.
+ * Height 48px, app name left, theme toggle + settings gear right.
  * Per design spec §3.1.
  *
  * Ref: T18 Plan §5 — Header Component
+ * Ref: T23 — Theme toggle button (sun/moon icon)
  */
 
-import { Settings } from "lucide-react";
+import { Settings, Sun, Moon } from "lucide-react";
 
 interface HeaderProps {
   onSettingsClick?: () => void;
+  onThemeToggle?: () => void;
+  isDark?: boolean;
   t: (key: string) => string;
 }
 
-export function Header({ onSettingsClick, t }: HeaderProps) {
+export function Header({ onSettingsClick, onThemeToggle, isDark, t }: HeaderProps) {
   return (
     <header
       className="flex items-center justify-between shrink-0"
@@ -37,31 +40,61 @@ export function Header({ onSettingsClick, t }: HeaderProps) {
         Simple Edge TTS
       </h1>
 
-      <button
-        onClick={onSettingsClick}
-        className="flex items-center justify-center rounded-md"
-        style={{
-          width: 36,
-          height: 36,
-          color: "var(--color-text-secondary)",
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          transition: `color var(--duration-fast) var(--ease-default),
-                       background var(--duration-fast) var(--ease-default)`,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.color = "var(--color-accent-main)";
-          e.currentTarget.style.background = "var(--color-surface-hover)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.color = "var(--color-text-secondary)";
-          e.currentTarget.style.background = "transparent";
-        }}
-        aria-label={t("settings")}
-      >
-        <Settings size={20} />
-      </button>
+      <div className="flex items-center" style={{ gap: "var(--space-1)" }}>
+        {/* Theme toggle — T23 */}
+        <button
+          onClick={onThemeToggle}
+          className="flex items-center justify-center rounded-md"
+          style={{
+            width: 36,
+            height: 36,
+            color: "var(--color-text-secondary)",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            transition: `color var(--duration-fast) var(--ease-default),
+                         background var(--duration-fast) var(--ease-default)`,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = "var(--color-accent-main)";
+            e.currentTarget.style.background = "var(--color-surface-hover)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = "var(--color-text-secondary)";
+            e.currentTarget.style.background = "transparent";
+          }}
+          aria-label={t("theme_toggle")}
+        >
+          {isDark ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
+
+        {/* Settings gear */}
+        <button
+          onClick={onSettingsClick}
+          className="flex items-center justify-center rounded-md"
+          style={{
+            width: 36,
+            height: 36,
+            color: "var(--color-text-secondary)",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            transition: `color var(--duration-fast) var(--ease-default),
+                         background var(--duration-fast) var(--ease-default)`,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = "var(--color-accent-main)";
+            e.currentTarget.style.background = "var(--color-surface-hover)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = "var(--color-text-secondary)";
+            e.currentTarget.style.background = "transparent";
+          }}
+          aria-label={t("settings")}
+        >
+          <Settings size={20} />
+        </button>
+      </div>
     </header>
   );
 }
