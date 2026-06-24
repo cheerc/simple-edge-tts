@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Lint (ruff)
+        run: uv run ruff check src/ tests/
+
+      - name: Install Qt dependencies
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgl1 libegl1 libpulse0
+
+      - name: Test (pytest)
+        run: xvfb-run uv run pytest tests/ -v

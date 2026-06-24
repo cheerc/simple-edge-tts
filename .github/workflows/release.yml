@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macOS
+            sep: ":"
+            artifact: simple-edge-tts-macOS
+          - os: windows-latest
+            platform: Windows
+            sep: ";"
+            artifact: simple-edge-tts-Windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Build with PyInstaller
+        run: |
+          uv run pyinstaller \
+            --name simple-edge-tts \
+            --windowed \
+            --onedir \
+            --add-data "src/resources${{ matrix.sep }}src/resources" \
+            --hidden-import PySide6 \
+            --hidden-import edge_tts \
+            --noconfirm \
+            src/main.py
+        shell: bash
+
+      - name: Create .dmg (macOS)
+        if: matrix.platform == 'macOS'
+        run: |
+          hdiutil create \
+            -volname "simple-edge-tts" \
+            -srcfolder dist/simple-edge-tts \
+            -ov -format UDZO \
+            dist/simple-edge-tts.dmg
+
+      - name: Create .zip (Windows)
+        if: matrix.platform == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/simple-edge-tts -DestinationPath dist/simple-edge-tts-windows.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/simple-edge-tts.dmg
+            dist/simple-edge-tts-windows.zip
+          if-no-files-found: warn
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+          generate_release_notes: true
