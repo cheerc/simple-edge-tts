@@ -176,3 +176,28 @@ class Api:
         except Exception as e:
             logger.error("Stop playback failed: %s", e)
             return json.dumps({"success": False, "error": str(e)})
+
+    def check_update(self) -> str:
+        """Check GitHub for a newer release.
+
+        Non-blocking from the frontend's perspective (called once on mount).
+        Fails silently on network error.
+
+        Returns:
+            JSON with {'latest': str, 'url': str} if update available,
+            or JSON null if up-to-date / offline / error.
+        """
+        try:
+            from importlib.metadata import version as pkg_version
+
+            from src.update_checker import UpdateChecker
+
+            current = pkg_version("simple-edge-tts")
+            skip = self._config.get("skip_version")
+            checker = UpdateChecker(current, skip_version=skip)
+            result = checker.check()
+            return json.dumps(result)
+        except Exception as e:
+            logger.debug("check_update failed: %s", e)
+            return json.dumps(None)
+

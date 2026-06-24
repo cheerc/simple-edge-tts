@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import type { Voice, TTSResult, ConfigValue, ConfigSetResult, TranslationData, AudioResult } from "../types";
+import type { Voice, TTSResult, ConfigValue, ConfigSetResult, TranslationData, AudioResult, UpdateInfo } from "../types";
 
 /** Hook return type. */
 export interface UseApiReturn {
@@ -20,6 +20,7 @@ export interface UseApiReturn {
   getTranslations: () => Promise<TranslationData>;
   playAudio: (path: string) => Promise<AudioResult>;
   stopAudio: () => Promise<AudioResult>;
+  checkUpdate: () => Promise<UpdateInfo | null>;
 }
 
 export function useApi(): UseApiReturn {
@@ -92,5 +93,10 @@ export function useApi(): UseApiReturn {
     return JSON.parse(result) as AudioResult;
   }, [getApi]);
 
-  return { ready, getVoices, generateTTS, getConfig, setConfig, getTranslations, playAudio, stopAudio };
+  const checkUpdate = useCallback(async (): Promise<UpdateInfo | null> => {
+    const result = await getApi().check_update();
+    return JSON.parse(result) as UpdateInfo | null;
+  }, [getApi]);
+
+  return { ready, getVoices, generateTTS, getConfig, setConfig, getTranslations, playAudio, stopAudio, checkUpdate };
 }

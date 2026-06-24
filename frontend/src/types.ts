@@ -42,6 +42,12 @@ export interface AudioResult {
   error?: string;
 }
 
+/** Result from check_update() API call. null if no update available. */
+export interface UpdateInfo {
+  latest: string;
+  url: string;
+}
+
 /** Toast notification variant. */
 export type ToastVariant = "success" | "error" | "info";
 
@@ -66,6 +72,7 @@ export interface PyWebViewApi {
   get_translations(): Promise<string>;
   play_audio(file_path: string): Promise<string>;
   stop_audio(): Promise<string>;
+  check_update(): Promise<string>;
 }
 
 /** Augment the global Window interface for PyWebView. */
