@@ -15,11 +15,21 @@
   "status_generating": "Generating speech...",
   "status_playing": "Playing...",
   "status_exported": "Exported: {filename}",
+  "status_loading_voices": "Loading voice list...",
   "error_no_internet": "Cannot connect to TTS service. Please check your internet connection.",
   "error_export_failed": "Export failed: {error}",
   "error_folder_not_writable": "Cannot write to folder. Please choose another location.",
   "voice_group_tw": "Traditional Chinese",
   "voice_group_en": "English",
   "voice_group_other": "Other",
-  "lang_toggle": "繁中"
+  "lang_toggle": "繁中",
+  "settings": "Settings",
+  "settings_title": "Settings",
+  "language": "Language",
+  "save": "Save",
+  "cancel": "Cancel",
+  "show_main": "Show Main Window",
+  "exit": "Exit",
+  "export_success_title": "Export Complete",
+  "export_success_msg": "File exported to: {path}"
 }
