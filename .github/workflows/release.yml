@@ -32,8 +32,18 @@ jobs:
 
       - uses: astral-sh/setup-uv@v4
 
-      - name: Install dependencies
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
         run: uv sync --all-extras
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
 
       - name: Build with PyInstaller
         run: |
@@ -42,7 +52,10 @@ jobs:
             --windowed \
             --onedir \
             --add-data "src/resources${{ matrix.sep }}src/resources" \
-            --hidden-import PySide6 \
+            --add-data "src/static${{ matrix.sep }}src/static" \
+            --add-data "frontend/dist${{ matrix.sep }}frontend/dist" \
+            --hidden-import pystray \
+            --hidden-import PIL \
             --hidden-import edge_tts \
             --noconfirm \
             src/main.py
@@ -51,11 +64,20 @@ jobs:
       - name: Create .dmg (macOS)
         if: matrix.platform == 'macOS'
         run: |
+          # Ref: #66 — Stage .app + Applications symlink for drag-to-install DMG.
+          # hdiutil -srcfolder must point at a folder containing the .app
+          # (not the PyInstaller onedir folder, which lacks .app structure).
+          staging="dist/dmg-staging"
+          rm -rf "$staging"
+          mkdir -p "$staging"
+          cp -R "dist/simple-edge-tts.app" "$staging/"
+          ln -s /Applications "$staging/Applications"
           hdiutil create \
             -volname "simple-edge-tts" \
-            -srcfolder dist/simple-edge-tts \
+            -srcfolder "$staging" \
             -ov -format UDZO \
             dist/simple-edge-tts.dmg
+          rm -rf "$staging"
 
       - name: Create .zip (Windows)
         if: matrix.platform == 'Windows'
