@@ -8,15 +8,15 @@ JSON-encoded strings for structured data. The React frontend (T18) will
 call these methods and parse the JSON responses.
 
 Ref: T16 — PyWebView entry point + IPC bridge
+Ref: T28 — Use persistent event loop via run_async()
 """
 
-import asyncio
 import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.tts_engine import TTSEngine, format_rate, format_pitch, make_output_filename
+from src.tts_engine import TTSEngine, format_rate, format_pitch, make_output_filename, run_async
 
 if TYPE_CHECKING:
     from src.audio_player import AudioPlayer
@@ -82,7 +82,7 @@ class Api:
             rate_str = format_rate(rate)
             pitch_str = format_pitch(pitch)
 
-            asyncio.run(
+            run_async(
                 self._engine.generate(
                     text=text,
                     voice=voice,
