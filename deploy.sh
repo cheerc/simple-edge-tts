@@ -83,6 +83,7 @@ do_build() {
         --windowed
         --onedir
         --add-data "${RESOURCES_DIR}${sep}${RESOURCES_DIR}"
+        --add-data "src/static${sep}src/static"
         --add-data "frontend/dist${sep}frontend/dist"
         --hidden-import pystray
         --hidden-import PIL

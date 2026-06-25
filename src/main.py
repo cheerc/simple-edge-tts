@@ -11,6 +11,7 @@ Ref: T20 — System tray via pystray
 """
 
 import os
+import sys
 from pathlib import Path
 
 import webview
@@ -22,9 +23,27 @@ from src.i18n import I18n
 from src.tts_engine import TTSEngine, shutdown_event_loop
 from src.system_tray import SystemTrayManager
 
-TRANSLATIONS_DIR = Path(__file__).parent / "resources" / "translations"
-FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist" / "index.html"
 VITE_DEV_URL = "http://localhost:5173"
+
+
+def _get_base_dir() -> Path:
+    """Get base path for bundled data files.
+
+    Ref: #66 — PyInstaller strips the src/ prefix from the entry point,
+    so __file__ = _internal/main.py (not _internal/src/main.py).
+    Path(__file__).parent.parent goes one level too high, making
+    FRONTEND_DIST.exists() = False → fallback to dev mode → white screen.
+
+    In frozen mode, sys._MEIPASS points to the correct data root
+    (_internal/ for onedir, Contents/Resources/ for .app).
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    return Path(__file__).parent.parent
+
+
+TRANSLATIONS_DIR = _get_base_dir() / "src" / "resources" / "translations"
+FRONTEND_DIST = _get_base_dir() / "frontend" / "dist" / "index.html"
 
 
 def _is_dev_mode() -> bool:
@@ -100,7 +119,7 @@ def main():
     # audio_player_bridge.js defines window.audioPlayerBridge (IIFE) which
     # AudioPlayer.play() calls via evaluate_js(). Without injection, the
     # bridge global is undefined and playAudio() silently fails.
-    _bridge_js_path = Path(__file__).parent / "static" / "js" / "audio_player_bridge.js"
+    _bridge_js_path = _get_base_dir() / "src" / "static" / "js" / "audio_player_bridge.js"
 
     def _on_loaded():
         try:
