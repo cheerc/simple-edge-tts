@@ -75,6 +75,72 @@ class TestTTSEngineVoices:
         assert groups[1] == "en-US"
 
 
+class TestTTSEnginePrefetchCache:
+    """Tests for voice prefetch cache behavior (Issue #43 fix)."""
+
+    def test_init_voices_cache_is_none(self):
+        """TTSEngine.__init__ initializes _voices_cache = None."""
+        engine = TTSEngine()
+        assert engine._voices_cache is None
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_prefetch_voices_populates_cache(self, mock_list):
+        """prefetch_voices() calls run_async(edge_tts.list_voices()) and stores result."""
+        mock_voices = [
+            {"ShortName": "zh-TW-HsiaoChenNeural", "Locale": "zh-TW", "Gender": "Female"},
+        ]
+        mock_list.return_value = mock_voices
+        engine = TTSEngine()
+        engine.prefetch_voices()
+        assert engine._voices_cache == mock_voices
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_get_voices_sync_returns_cache_when_populated(self, mock_list):
+        """get_voices_sync() returns _voices_cache when non-None, without calling list_voices."""
+        cached = [{"ShortName": "cached-voice", "Locale": "test", "Gender": "Male"}]
+        engine = TTSEngine()
+        engine._voices_cache = cached
+        result = engine.get_voices_sync()
+        assert result == cached
+        mock_list.assert_not_called()
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_get_voices_sync_falls_back_when_cache_is_none(self, mock_list):
+        """get_voices_sync() fetches online when _voices_cache is None."""
+        online_voices = [
+            {"ShortName": "en-US-JennyNeural", "Locale": "en-US", "Gender": "Female"},
+        ]
+        mock_list.return_value = online_voices
+        engine = TTSEngine()
+        assert engine._voices_cache is None
+        result = engine.get_voices_sync()
+        assert result == online_voices
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_prefetch_voices_exception_leaves_cache_none(self, mock_list):
+        """If prefetch_voices() raises, _voices_cache stays None (fallback still works)."""
+        mock_list.side_effect = Exception("network error")
+        engine = TTSEngine()
+        engine.prefetch_voices()  # Should not raise
+        assert engine._voices_cache is None
+
+
+class TestGetLoopCustomExecutor:
+    """Test that _get_loop() sets a custom ThreadPoolExecutor on new loops."""
+
+    def test_loop_has_custom_executor(self):
+        """_get_loop() should set a custom ThreadPoolExecutor on the event loop."""
+        import concurrent.futures
+        from src.tts_engine import _get_loop
+
+        loop = _get_loop()
+        # The loop should have a custom default executor set
+        # (asyncio stores it in loop._default_executor)
+        executor = getattr(loop, "_default_executor", None)
+        assert executor is not None
+        assert isinstance(executor, concurrent.futures.ThreadPoolExecutor)
+
+
 class TestTTSEngineGenerate:
     @patch("src.tts_engine.edge_tts.Communicate")
     def test_generate_creates_file(self, mock_communicate, tmp_path):
