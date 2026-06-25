@@ -13,7 +13,6 @@ Ref: T20 — System tray via pystray
 import logging
 import os
 import sys
-import threading
 from pathlib import Path
 
 import webview
@@ -148,28 +147,23 @@ def main():
 
     window.events.loaded += _on_loaded
 
-    # Ref: #77 — Unified close handler: cancel native Cocoa close and run
-    # the same _on_quit() cleanup sequence used by Cmd+Q / tray Quit.
-    # This prevents the hang caused by pywebview's _call threads blocking
-    # on Semaphore.acquire() after NSRunLoop exits (see error3.log analysis).
-    #
-    # Reentrancy guard: window.destroy() inside _on_quit() triggers
-    # windowShouldClose_ → closing.set() again. On the second call,
-    # return None to allow the close to proceed.
-    _closing_in_progress = False
-
+    # Ref: #77 — Monkey-patch window.evaluate_js on close to prevent
+    # pywebview's internal _call threads from deadlocking. These threads
+    # call evaluate_js() to return JS API results via Cocoa's
+    # AppHelper.callAfter() + Semaphore.acquire(). After the window
+    # closes and NSRunLoop exits, callAfter never executes and the
+    # semaphore never releases → hang. Making evaluate_js a no-op
+    # during shutdown lets those threads complete harmlessly.
     def _on_window_closing():
-        nonlocal _closing_in_progress
-        if _closing_in_progress:
-            return  # Second call from window.destroy() → allow close
-        _closing_in_progress = True
-        audio_player.begin_shutdown()  # Ref: #77 — set flag before any cleanup
-        # fire-and-forget: cleanup runs on background thread so the main
-        # thread's NSRunLoop stays alive to service AppHelper.callAfter
-        # dispatches (evaluate_js, window.close, tray.stop) until
-        # window.destroy() issues the final close.
-        threading.Thread(target=_on_quit, daemon=True).start()
-        return False  # Cancel native close; _on_quit() will window.destroy()
+        audio_player.begin_shutdown()  # Ref: #77 — set shutdown flag
+        original = getattr(window, '_original_evaluate_js', None)
+        if original is None:  # Only patch once
+            window._original_evaluate_js = window.evaluate_js
+            def safe_evaluate_js(script, callback=None):
+                if audio_player._shutting_down:
+                    return None
+                return window._original_evaluate_js(script, callback)
+            window.evaluate_js = safe_evaluate_js
 
     window.events.closing += _on_window_closing
 
@@ -181,13 +175,16 @@ def main():
 
     webview.start()
 
-    # Ref: #47 — Fallback cleanup when webview exits without going through
-    # our closing handler (defensive — should not normally happen).
+    # Ref: #47 — Clean up when webview exits normally (window closed via
+    # title-bar X, not via tray Quit). Ensures event loop thread is joined
+    # and tray is stopped so Python exits cleanly.
     # All calls are idempotent so safe to run even if _on_quit() already did them.
-    if not _closing_in_progress:
-        audio_player.begin_shutdown()
-        tray.stop()
-        shutdown_event_loop()
+    audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
+    tray.stop()
+    shutdown_event_loop()
+    os._exit(0)  # Ref: #77 — force-exit to prevent hang from pywebview
+                 # _call threads stuck on Semaphore.acquire() during
+                 # Python finalization (Py_FinalizeEx thread join)
 
 
 if __name__ == "__main__":
