@@ -52,9 +52,21 @@ def _is_dev_mode() -> bool:
     Development mode is active when:
     - SIMPLE_EDGE_TTS_DEV env var is set, OR
     - The built frontend doesn't exist (fallback to Vite dev server)
+
+    In frozen (PyInstaller) mode, missing frontend is a packaging error
+    and raises RuntimeError instead of silently falling back to dev server.
+    Ref: #66 — silent fallback hid the broken path resolution.
     """
     if os.environ.get("SIMPLE_EDGE_TTS_DEV"):
         return True
+    if getattr(sys, "frozen", False):
+        if not FRONTEND_DIST.exists():
+            raise RuntimeError(
+                f"Packaged frontend not found at {FRONTEND_DIST}. "
+                f"This is a packaging error. "
+                f"_MEIPASS={getattr(sys, '_MEIPASS', 'N/A')}"
+            )
+        return False
     return not FRONTEND_DIST.exists()
 
 
