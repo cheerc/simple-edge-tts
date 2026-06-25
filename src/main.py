@@ -19,7 +19,7 @@ from src.api import Api
 from src.audio_player import AudioPlayer
 from src.config_manager import ConfigManager
 from src.i18n import I18n
-from src.tts_engine import TTSEngine
+from src.tts_engine import TTSEngine, shutdown_event_loop
 from src.system_tray import SystemTrayManager
 
 TRANSLATIONS_DIR = Path(__file__).parent / "resources" / "translations"
@@ -74,9 +74,16 @@ def main():
     audio_player.set_webview_window(window)
 
     # Ref: T20 — System tray (pystray): Show/Hide window, Quit app
+    # Ref: #47 — Quit handler must stop tray + event loop before
+    # destroying the window, otherwise daemon threads hang at shutdown.
+    def _on_quit():
+        tray.stop()
+        shutdown_event_loop()
+        window.destroy()
+
     tray = SystemTrayManager(
         window=window,
-        on_quit=lambda: window.destroy(),
+        on_quit=_on_quit,
     )
 
     # Start tray before webview — on macOS, pystray creates NSStatusItem
@@ -92,6 +99,12 @@ def main():
     tts_engine.prefetch_voices()
 
     webview.start()
+
+    # Ref: #47 — Clean up when webview exits normally (window closed via
+    # title-bar X, not via tray Quit). Ensures event loop thread is joined
+    # and tray is stopped so Python exits cleanly.
+    tray.stop()
+    shutdown_event_loop()
 
 
 if __name__ == "__main__":
