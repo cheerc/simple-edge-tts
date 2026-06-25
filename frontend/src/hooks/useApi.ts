@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import type { Voice, TTSResult, ConfigValue, ConfigSetResult, TranslationData, AudioResult, UpdateInfo } from "../types";
+import type { Voice, TTSResult, ConfigValue, ConfigSetResult, TranslationData, AudioResult, UpdateInfo, OutputDirResult } from "../types";
 
 /** Hook return type. */
 export interface UseApiReturn {
@@ -21,6 +21,8 @@ export interface UseApiReturn {
   playAudio: (path: string) => Promise<AudioResult>;
   stopAudio: () => Promise<AudioResult>;
   checkUpdate: () => Promise<UpdateInfo | null>;
+  getOutputDir: () => Promise<OutputDirResult>;
+  selectOutputDir: () => Promise<OutputDirResult>;
 }
 
 export function useApi(): UseApiReturn {
@@ -98,5 +100,15 @@ export function useApi(): UseApiReturn {
     return JSON.parse(result) as UpdateInfo | null;
   }, [getApi]);
 
-  return { ready, getVoices, generateTTS, getConfig, setConfig, getTranslations, playAudio, stopAudio, checkUpdate };
+  const getOutputDir = useCallback(async (): Promise<OutputDirResult> => {
+    const result = await getApi().get_output_dir();
+    return JSON.parse(result) as OutputDirResult;
+  }, [getApi]);
+
+  const selectOutputDir = useCallback(async (): Promise<OutputDirResult> => {
+    const result = await getApi().select_output_dir();
+    return JSON.parse(result) as OutputDirResult;
+  }, [getApi]);
+
+  return { ready, getVoices, generateTTS, getConfig, setConfig, getTranslations, playAudio, stopAudio, checkUpdate, getOutputDir, selectOutputDir };
 }

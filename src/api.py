@@ -14,7 +14,7 @@ Ref: T28 — Use persistent event loop via run_async()
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from src.tts_engine import TTSEngine, format_rate, format_pitch, make_output_filename, run_async
 
@@ -44,6 +44,7 @@ class Api:
         self._config = config
         self._audio_player = audio_player
         self._i18n = i18n
+        self._window: Optional[object] = None
 
     def get_voices(self) -> str:
         """Return JSON-encoded voice list from edge-tts.
@@ -200,4 +201,51 @@ class Api:
         except Exception as e:
             logger.debug("check_update failed: %s", e)
             return json.dumps(None)
+
+    def set_window(self, window: object) -> None:
+        """Set the pywebview window reference for native file dialogs."""
+        self._window = window
+
+    def get_output_dir(self) -> str:
+        """Return the current output directory path.
+
+        Returns:
+            JSON with 'output_dir' field.
+        """
+        output_dir = self._config.get("output_dir")
+        if output_dir is None:
+            output_dir = str(Path.home() / "Desktop")
+        return json.dumps({"output_dir": output_dir}, ensure_ascii=False)
+
+    def select_output_dir(self) -> str:
+        """Open a native folder picker dialog and persist the selection.
+
+        Uses PyWebView's create_file_dialog(FOLDER_DIALOG) for a native
+        OS folder selection experience.
+
+        Returns:
+            JSON with 'output_dir' (selected or current on cancel),
+            or 'error' if window not available.
+        """
+        if self._window is None:
+            return json.dumps({"error": "Window not available"})
+
+        try:
+            import webview
+
+            result = self._window.create_file_dialog(
+                webview.FOLDER_DIALOG  # type: ignore[arg-type]
+            )
+
+            if result and len(result) > 0:
+                selected = result[0]
+                self._config.set("output_dir", selected)
+                self._config.save()
+                return json.dumps({"output_dir": selected}, ensure_ascii=False)
+
+            # User cancelled — return current dir
+            return self.get_output_dir()
+        except Exception as e:
+            logger.error("Folder selection failed: %s", e)
+            return json.dumps({"error": str(e)})
 

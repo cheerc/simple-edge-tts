@@ -48,6 +48,12 @@ export interface UpdateInfo {
   url: string;
 }
 
+/** Result from get_output_dir() / select_output_dir() API calls. */
+export interface OutputDirResult {
+  output_dir?: string;
+  error?: string;
+}
+
 /** Toast notification variant. */
 export type ToastVariant = "success" | "error" | "info";
 
@@ -73,6 +79,8 @@ export interface PyWebViewApi {
   play_audio(file_path: string): Promise<string>;
   stop_audio(): Promise<string>;
   check_update(): Promise<string>;
+  get_output_dir(): Promise<string>;
+  select_output_dir(): Promise<string>;
 }
 
 /** Augment the global Window interface for PyWebView. */

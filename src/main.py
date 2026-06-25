@@ -73,6 +73,10 @@ def main():
     # Wire AudioPlayer to the webview window for JS bridge communication
     audio_player.set_webview_window(window)
 
+    # Wire Api to the webview window for native file dialogs (folder picker)
+    # Ref: #50 — Output folder selector
+    api.set_window(window)
+
     # Ref: T20 — System tray (pystray): Show/Hide window, Quit app
     # Ref: #47 — Quit handler must stop tray + event loop before
     # destroying the window, otherwise daemon threads hang at shutdown.
