@@ -93,6 +93,14 @@ jobs:
             VERSION_FILE_FLAG="--version-file version_info.txt"
           fi
 
+          # Ref: #93 — Add platform-conditional icon (mirrors deploy.sh logic)
+          ICON_FLAG=""
+          if [ "${{ matrix.platform }}" = "macOS" ] && [ -f src/resources/icons/icon.icns ]; then
+            ICON_FLAG="--icon src/resources/icons/icon.icns"
+          elif [ "${{ matrix.platform }}" = "Windows" ] && [ -f src/resources/icons/icon.ico ]; then
+            ICON_FLAG="--icon src/resources/icons/icon.ico"
+          fi
+
           uv run pyinstaller \
             --name simple-edge-tts \
             --windowed \
@@ -107,6 +115,7 @@ jobs:
             --noconfirm \
             $VCRT_FLAG \
             $VERSION_FILE_FLAG \
+            $ICON_FLAG \
             src/main.py
         shell: bash
 
