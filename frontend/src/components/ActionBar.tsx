@@ -67,7 +67,7 @@ export function ActionBar({
           style={{
             ...baseBtnStyle,
             background: speaking ? "transparent" : "var(--color-accent-main)",
-            color: speaking ? "var(--color-accent-main)" : "var(--color-text-on-accent)",
+            color: speaking ? "var(--color-text-accent)" : "var(--color-text-on-accent)",
             border: speaking ? "1.5px solid var(--color-accent-main)" : "none",
             boxShadow: speaking ? "none" : "0 2px 8px rgba(204,74,53,0.25)",
             opacity: !speaking && disabled ? 0.5 : 1,
