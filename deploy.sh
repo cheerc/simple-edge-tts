@@ -178,7 +178,7 @@ do_build_exe() {
     # Find the most recent workflow_dispatch run
     local run_id
     run_id=$(gh run list --repo "$REPO" --workflow=release.yml --event=workflow_dispatch --limit=1 --json databaseId --jq '.[0].databaseId')
-    if [ -z "$run_id" ]; then
+    if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
         fail "Could not find the triggered workflow run"
     fi
 
