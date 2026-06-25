@@ -79,6 +79,10 @@ function App() {
   }, []);
 
   // Ref: #52 — Preview uses previewTTS() (temp file, not Desktop)
+  // Ref: #74 — setSpeaking(false) is handled by 'audioPlaybackFinished'
+  // event (fired by Python notify_playback_finished), not here.
+  // evaluate_js() returns immediately, so we cannot rely on
+  // api.playAudio() awaiting actual playback completion.
   const handleSpeak = useCallback(async () => {
     if (!text.trim() || !api.ready) return;
 
@@ -89,16 +93,18 @@ function App() {
 
       if (result.error) {
         addToast(result.error, "error");
+        setSpeaking(false);
       } else if (result.path) {
-        await api.playAudio(result.path);
-        addToast(t("status_playing"), "success");
+        // Fire-and-forget: speaking stays true until audioPlaybackFinished
+        api.playAudio(result.path);
+      } else {
+        setSpeaking(false);
       }
     } catch (err) {
       addToast(err instanceof Error ? err.message : "TTS generation failed", "error");
-    } finally {
       setSpeaking(false);
     }
-  }, [text, selectedVoice, speed, pitch, api, addToast, speedToRate, t]);
+  }, [text, selectedVoice, speed, pitch, api, addToast, speedToRate]);
 
   const handleStop = useCallback(async () => {
     try {
@@ -108,6 +114,16 @@ function App() {
     }
     setSpeaking(false);
   }, [api]);
+
+  // Ref: #74 — Listen for Python-dispatched playback completion event.
+  // When audio finishes naturally (onended), the JS bridge calls
+  // notifyPythonFinished() → Python dispatches 'audioPlaybackFinished'
+  // window event → React resets speaking state.
+  useEffect(() => {
+    const onFinished = () => setSpeaking(false);
+    window.addEventListener("audioPlaybackFinished", onFinished);
+    return () => window.removeEventListener("audioPlaybackFinished", onFinished);
+  }, []);
 
   // Ref: #51 — Toggle preview/stop from a single button
   const handleTogglePreview = useCallback(() => {

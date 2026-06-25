@@ -67,17 +67,6 @@
   function getAudioElement() {
     if (!audioElement) {
       audioElement = new Audio();
-
-      audioElement.addEventListener("ended", function () {
-        currentSrc = null;
-        notifyPythonFinished();
-      });
-
-      audioElement.addEventListener("error", function (e) {
-        console.error("Audio playback error:", e);
-        currentSrc = null;
-        notifyPythonFinished();
-      });
     }
     return audioElement;
   }
@@ -108,6 +97,23 @@
       audio.currentTime = 0;
     }
 
+    // Idempotent guard: ensure notifyPythonFinished() is called exactly
+    // once regardless of which completion path fires first (onended,
+    // onerror, or .play() catch). Ref: #63 — double-notify fix.
+    var finished = false;
+    function finishOnce() {
+      if (finished) return;
+      finished = true;
+      currentSrc = null;
+      notifyPythonFinished();
+    }
+
+    audio.onended = finishOnce;
+    audio.onerror = function (e) {
+      console.error("Audio playback error:", e);
+      finishOnce();
+    };
+
     try {
       var url = await filePathToUrl(filePath);
       currentSrc = filePath;
@@ -115,8 +121,7 @@
       await audio.play();
     } catch (err) {
       console.error("Failed to play audio:", err);
-      currentSrc = null;
-      notifyPythonFinished();
+      finishOnce();
     }
   }
 
