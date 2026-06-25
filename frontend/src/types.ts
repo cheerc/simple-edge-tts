@@ -73,6 +73,7 @@ export interface ToastItem {
 export interface PyWebViewApi {
   get_voices(): Promise<string>;
   generate_tts(text: string, voice: string, rate: number, pitch: number): Promise<string>;
+  preview_tts(text: string, voice: string, rate: number, pitch: number): Promise<string>;
   get_config(key: string): Promise<string>;
   set_config(key: string, value: unknown): Promise<string>;
   get_translations(): Promise<string>;

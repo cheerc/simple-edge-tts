@@ -15,6 +15,7 @@ export interface UseApiReturn {
   ready: boolean;
   getVoices: () => Promise<Voice[]>;
   generateTTS: (text: string, voice: string, rate: number, pitch: number) => Promise<TTSResult>;
+  previewTTS: (text: string, voice: string, rate: number, pitch: number) => Promise<TTSResult>;
   getConfig: (key: string) => Promise<ConfigValue>;
   setConfig: (key: string, value: unknown) => Promise<ConfigSetResult>;
   getTranslations: () => Promise<TranslationData>;
@@ -56,6 +57,14 @@ export function useApi(): UseApiReturn {
   const generateTTS = useCallback(
     async (text: string, voice: string, rate: number, pitch: number): Promise<TTSResult> => {
       const result = await getApi().generate_tts(text, voice, rate, pitch);
+      return JSON.parse(result) as TTSResult;
+    },
+    [getApi]
+  );
+
+  const previewTTS = useCallback(
+    async (text: string, voice: string, rate: number, pitch: number): Promise<TTSResult> => {
+      const result = await getApi().preview_tts(text, voice, rate, pitch);
       return JSON.parse(result) as TTSResult;
     },
     [getApi]
@@ -110,5 +119,5 @@ export function useApi(): UseApiReturn {
     return JSON.parse(result) as OutputDirResult;
   }, [getApi]);
 
-  return { ready, getVoices, generateTTS, getConfig, setConfig, getTranslations, playAudio, stopAudio, checkUpdate, getOutputDir, selectOutputDir };
+  return { ready, getVoices, generateTTS, previewTTS, getConfig, setConfig, getTranslations, playAudio, stopAudio, checkUpdate, getOutputDir, selectOutputDir };
 }

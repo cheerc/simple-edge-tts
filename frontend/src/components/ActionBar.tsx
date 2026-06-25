@@ -1,19 +1,16 @@
 /**
- * Action bar — 3 equal-width buttons: 試聽 / 停止 / 另存新檔.
+ * Action bar — 2 buttons: Preview/Stop toggle + Export MP3.
  * Below buttons: output folder selector row (📁 path, clickable).
- *
- * Sliders moved to VoiceSelector (T25 layout rework).
- * Per mockup v2 — btn-primary, btn-outline, btn-secondary.
  *
  * Ref: T25 — UI Layout Rework
  * Ref: #50 — Output folder selector
+ * Ref: #51 — Merge Preview + Stop into toggle button
  */
 
 import { Loader2, FolderOpen } from "lucide-react";
 
 interface ActionBarProps {
-  onSpeak: () => void;
-  onStop: () => void;
+  onTogglePreview: () => void;
   onSave: () => void;
   speaking: boolean;
   saving: boolean;
@@ -24,8 +21,7 @@ interface ActionBarProps {
 }
 
 export function ActionBar({
-  onSpeak,
-  onStop,
+  onTogglePreview,
   onSave,
   speaking,
   saving,
@@ -64,58 +60,42 @@ export function ActionBar({
     >
       {/* Button row */}
       <div style={{ display: "flex", gap: 12 }}>
-        {/* 試聽 — primary (coral filled) */}
+        {/* Preview/Stop toggle — Ref: #51 */}
         <button
-          onClick={onSpeak}
-          disabled={disabled || speaking || saving}
+          onClick={onTogglePreview}
+          disabled={(!speaking && disabled) || saving}
           style={{
             ...baseBtnStyle,
-            background: "var(--color-accent-main)",
-            color: "var(--color-text-on-accent)",
-            border: "none",
-            boxShadow: "0 2px 8px rgba(204,74,53,0.25)",
-            opacity: disabled ? 0.5 : 1,
-            cursor: disabled || speaking || saving ? "not-allowed" : "pointer",
-          }}
-          onMouseEnter={(e) => {
-            if (!disabled && !speaking && !saving) {
-              e.currentTarget.style.background = "var(--color-accent-hover)";
-            }
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "var(--color-accent-main)";
-          }}
-          aria-busy={speaking}
-        >
-          {speaking && <Loader2 size={16} className="animate-spin" />}
-          {speaking ? t("status_generating") : `▶ ${t("preview")}`}
-        </button>
-
-        {/* 停止 — outline (coral border) */}
-        <button
-          onClick={onStop}
-          disabled={!speaking}
-          style={{
-            ...baseBtnStyle,
-            background: "transparent",
-            color: "var(--color-accent-main)",
-            border: "1.5px solid var(--color-accent-main)",
-            opacity: !speaking ? 0.5 : 1,
-            cursor: !speaking ? "not-allowed" : "pointer",
+            background: speaking ? "transparent" : "var(--color-accent-main)",
+            color: speaking ? "var(--color-accent-main)" : "var(--color-text-on-accent)",
+            border: speaking ? "1.5px solid var(--color-accent-main)" : "none",
+            boxShadow: speaking ? "none" : "0 2px 8px rgba(204,74,53,0.25)",
+            opacity: !speaking && disabled ? 0.5 : 1,
+            cursor: (!speaking && disabled) || saving ? "not-allowed" : "pointer",
           }}
           onMouseEnter={(e) => {
             if (speaking) {
               e.currentTarget.style.background = "rgba(204,74,53,0.06)";
+            } else if (!disabled && !saving) {
+              e.currentTarget.style.background = "var(--color-accent-hover)";
             }
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.background = speaking ? "transparent" : "var(--color-accent-main)";
           }}
+          aria-busy={speaking}
         >
-          ■ {t("stop")}
+          {speaking ? (
+            <>■ {t("stop")}</>
+          ) : (
+            <>
+              {saving ? <Loader2 size={16} className="animate-spin" /> : null}
+              ▶ {t("preview")}
+            </>
+          )}
         </button>
 
-        {/* 另存新檔 — secondary (coral filled) */}
+        {/* Export MP3 — unchanged */}
         <button
           onClick={onSave}
           disabled={disabled || speaking || saving}
@@ -143,7 +123,7 @@ export function ActionBar({
         </button>
       </div>
 
-      {/* Output folder selector row */}
+      {/* Output folder selector row — Ref: #50 */}
       <div
         onClick={onSelectOutputDir}
         style={{

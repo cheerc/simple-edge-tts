@@ -13,6 +13,7 @@ Ref: T28 — Use persistent event loop via run_async()
 
 import json
 import logging
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -99,6 +100,53 @@ class Api:
             )
         except Exception as e:
             logger.error("TTS generation failed: %s", e)
+            return json.dumps({"error": str(e)})
+
+    def preview_tts(self, text: str, voice: str, rate: int, pitch: int) -> str:
+        """Generate TTS audio to a temp file for preview playback.
+
+        Unlike generate_tts(), this does NOT save to the user's output
+        directory. The temp file is suitable for immediate playback and
+        can be cleaned up after use.
+
+        Ref: #52 — Preview should not save files to Desktop.
+
+        Args:
+            text: Text to synthesize.
+            voice: Voice short name (e.g. 'en-US-JennyNeural').
+            rate: Speech rate adjustment (-100 to 100).
+            pitch: Pitch adjustment in Hz (-100 to 100).
+
+        Returns:
+            JSON with 'path' (temp file) on success or 'error' on failure.
+        """
+        if not text or not text.strip():
+            return json.dumps({"error": "Text cannot be empty"})
+
+        try:
+            # Create a temp file that persists until explicitly deleted
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=".mp3", prefix="set_preview_", delete=False
+            )
+            tmp_path = tmp.name
+            tmp.close()
+
+            rate_str = format_rate(rate)
+            pitch_str = format_pitch(pitch)
+
+            run_async(
+                self._engine.generate(
+                    text=text,
+                    voice=voice,
+                    output_path=tmp_path,
+                    rate=rate_str,
+                    pitch=pitch_str,
+                )
+            )
+
+            return json.dumps({"path": tmp_path}, ensure_ascii=False)
+        except Exception as e:
+            logger.error("TTS preview failed: %s", e)
             return json.dumps({"error": str(e)})
 
     def get_config(self, key: str) -> str:
