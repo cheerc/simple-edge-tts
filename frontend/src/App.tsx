@@ -78,13 +78,14 @@ function App() {
     return Math.round((multiplier - 1.0) * 100);
   }, []);
 
+  // Ref: #52 — Preview uses previewTTS() (temp file, not Desktop)
   const handleSpeak = useCallback(async () => {
     if (!text.trim() || !api.ready) return;
 
     setSpeaking(true);
     try {
       const rate = speedToRate(speed);
-      const result = await api.generateTTS(text, selectedVoice, rate, pitch);
+      const result = await api.previewTTS(text, selectedVoice, rate, pitch);
 
       if (result.error) {
         addToast(result.error, "error");
@@ -107,6 +108,15 @@ function App() {
     }
     setSpeaking(false);
   }, [api]);
+
+  // Ref: #51 — Toggle preview/stop from a single button
+  const handleTogglePreview = useCallback(() => {
+    if (speaking) {
+      handleStop();
+    } else {
+      handleSpeak();
+    }
+  }, [speaking, handleStop, handleSpeak]);
 
   const handleSave = useCallback(async () => {
     if (!text.trim() || !api.ready) return;
@@ -193,10 +203,9 @@ function App() {
           <TextEditor text={text} onTextChange={setText} t={t} />
         </div>
 
-        {/* Action Bar — 3 buttons */}
+        {/* Action Bar — 2 buttons (Ref: #51) */}
         <ActionBar
-          onSpeak={handleSpeak}
-          onStop={handleStop}
+          onTogglePreview={handleTogglePreview}
           onSave={handleSave}
           speaking={speaking}
           saving={saving}

@@ -156,7 +156,6 @@ class TestPlayAudio:
         api.stop_audio()
         mock_audio_player.stop.assert_called_once()
 
-
 class TestOutputDir:
     """Test get_output_dir() / select_output_dir() — folder selection IPC."""
 
@@ -207,4 +206,41 @@ class TestSetWindow:
         mock_window = MagicMock()
         api.set_window(mock_window)
         assert api._window is mock_window
+
+
+class TestPreviewTts:
+    """Test preview_tts() — generates to temp file, not output_dir (Issue #52)."""
+
+    def test_returns_temp_path(self, api, mock_tts_engine):
+        """preview_tts() returns a path in the system temp directory."""
+        import tempfile
+
+        result = api.preview_tts("Hello", "en-US-JennyNeural", 0, 0)
+        parsed = json.loads(result)
+        assert "path" in parsed
+        assert parsed["path"].endswith(".mp3")
+        # Should be in temp dir, not Desktop/output_dir
+        assert tempfile.gettempdir() in parsed["path"] or "/tmp" in parsed["path"] or "Temp" in parsed["path"]
+
+    def test_does_not_use_output_dir(self, api, mock_tts_engine, mock_config):
+        """preview_tts() should NOT read output_dir from config."""
+        result = api.preview_tts("Hello", "en-US-JennyNeural", 0, 0)
+        parsed = json.loads(result)
+        assert "path" in parsed
+        # Should not contain Desktop or output_dir
+        assert "Desktop" not in parsed["path"]
+
+    def test_empty_text_returns_error(self, api):
+        """preview_tts() returns error for empty text."""
+        result = api.preview_tts("", "en-US-JennyNeural", 0, 0)
+        parsed = json.loads(result)
+        assert "error" in parsed
+
+    def test_delegates_to_engine_generate(self, api, mock_tts_engine):
+        """preview_tts() calls engine.generate() with correct params."""
+        api.preview_tts("Test", "en-US-JennyNeural", 20, -10)
+        mock_tts_engine.generate.assert_called_once()
+        call_kwargs = mock_tts_engine.generate.call_args
+        assert "+20%" in str(call_kwargs)
+        assert "-10Hz" in str(call_kwargs)
 
