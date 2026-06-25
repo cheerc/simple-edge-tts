@@ -202,3 +202,75 @@ class TestShutdownEventLoop:
         assert loop2.is_running()
         assert loop2 is not loop1
 
+
+class TestWindowsEventLoopPolicy:
+    """Tests for Windows-specific event loop policy fix (Issue #95).
+
+    On Windows, asyncio defaults to ProactorEventLoop which is incompatible
+    with aiohttp's DNS resolver. _get_loop() must ensure SelectorEventLoop
+    is used on Windows to prevent the app from hanging during voice list
+    initialization.
+    """
+
+    def test_ensure_selector_policy_sets_policy_on_windows(self):
+        """_ensure_selector_policy() sets WindowsSelectorEventLoopPolicy when on Windows."""
+        from src.tts_engine import _ensure_selector_policy
+
+        with patch("src.tts_engine.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            # Mock the Windows-specific policy class
+            mock_policy_cls = MagicMock()
+            with patch.dict("sys.modules", {}):
+                with patch("asyncio.WindowsSelectorEventLoopPolicy", mock_policy_cls, create=True):
+                    with patch("asyncio.set_event_loop_policy") as mock_set_policy:
+                        _ensure_selector_policy()
+                        mock_set_policy.assert_called_once_with(mock_policy_cls())
+
+    def test_ensure_selector_policy_noop_on_non_windows(self):
+        """_ensure_selector_policy() does nothing on macOS/Linux."""
+        from src.tts_engine import _ensure_selector_policy
+
+        with patch("src.tts_engine.sys") as mock_sys:
+            mock_sys.platform = "darwin"
+            with patch("asyncio.set_event_loop_policy") as mock_set_policy:
+                _ensure_selector_policy()
+                mock_set_policy.assert_not_called()
+
+    def test_get_loop_calls_ensure_selector_policy(self):
+        """_get_loop() calls _ensure_selector_policy() before creating a new loop."""
+        from src.tts_engine import _get_loop, shutdown_event_loop
+
+        # Shutdown any existing loop so _get_loop creates a new one
+        shutdown_event_loop()
+
+        with patch("src.tts_engine._ensure_selector_policy") as mock_ensure:
+            loop = _get_loop()
+            mock_ensure.assert_called_once()
+            assert loop.is_running()
+
+
+class TestGetVoicesSyncGracefulDegradation:
+    """Tests for graceful degradation when voice fetch fails (Issue #95).
+
+    When both prefetch cache is empty AND online fetch fails, get_voices_sync()
+    should return an empty list instead of propagating the exception — this
+    prevents the Windows app from hanging when the IPC call blocks.
+    """
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_get_voices_sync_returns_empty_on_failure(self, mock_list):
+        """get_voices_sync() returns [] when cache is None and online fetch raises."""
+        mock_list.side_effect = Exception("network error")
+        engine = TTSEngine()
+        assert engine._voices_cache is None
+        result = engine.get_voices_sync()
+        assert result == []
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_get_voices_sync_returns_empty_on_timeout(self, mock_list):
+        """get_voices_sync() returns [] when online fetch times out."""
+        mock_list.side_effect = TimeoutError("timed out")
+        engine = TTSEngine()
+        result = engine.get_voices_sync()
+        assert result == []
+
