@@ -55,6 +55,22 @@ jobs:
           echo "Detected version: $VERSION"
         shell: bash
 
+      # Ref: #90 — Generate Windows version resource file (VSVersionInfo format).
+      # PyInstaller uses --version-file (not --file-version/--product-version).
+      - name: Generate version info (Windows)
+        if: matrix.platform == 'Windows'
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          sed -e "s/__MAJOR__/${MAJOR}/g" \
+              -e "s/__MINOR__/${MINOR}/g" \
+              -e "s/__PATCH__/${PATCH}/g" \
+              -e "s/__VERSION__/${VERSION}/g" \
+              version_info.template > version_info.txt
+          echo "Generated version_info.txt (v$VERSION)"
+          cat version_info.txt
+        shell: bash
+
       - name: Build with PyInstaller
         run: |
           # On Windows, find and force-include vcruntime140.dll for portability
@@ -71,40 +87,10 @@ jobs:
             echo "VC Runtime flags: $VCRT_FLAG"
           fi
 
-          # Ref: #90 — Windows version metadata via --version-file (VSVersionInfo).
+          # Use version-file if it was generated (Windows only)
           VERSION_FILE_FLAG=""
-          if [ "${{ matrix.platform }}" = "Windows" ]; then
-            VERSION="${{ steps.version.outputs.VERSION }}"
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-            python3 -c "
-print('''# UTF-8
-VSVersionInfo(
-  ffi=FixedFileInfo(
-    filevers=($MAJOR, $MINOR, $PATCH, 0),
-    prodvers=($MAJOR, $MINOR, $PATCH, 0),
-    mask=0x3f,
-    flags=0x0,
-    OS=0x40004,
-    fileType=0x1,
-    subtype=0x0,
-    date=(0, 0)
-  ),
-  kids=[
-    StringFileInfo([StringTable(\"040904B0\", [
-      StringStruct(\"FileDescription\", \"Simple Edge TTS\"),
-      StringStruct(\"FileVersion\", \"${VERSION}.0\"),
-      StringStruct(\"InternalName\", \"simple-edge-tts\"),
-      StringStruct(\"OriginalFilename\", \"simple-edge-tts.exe\"),
-      StringStruct(\"ProductName\", \"Simple Edge TTS\"),
-      StringStruct(\"ProductVersion\", \"${VERSION}.0\"),
-    ])]),
-    VarFileInfo([VarStruct(\"Translation\", [0x0409, 1200])])
-  ]
-)
-''')
-" > version_info.txt
+          if [ -f version_info.txt ]; then
             VERSION_FILE_FLAG="--version-file version_info.txt"
-            echo "Generated version_info.txt (v$VERSION)"
           fi
 
           uv run pyinstaller \

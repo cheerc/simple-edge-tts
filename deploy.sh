@@ -107,34 +107,13 @@ do_build() {
     # Ref: #90 — Windows .exe version metadata via --version-file (VSVersionInfo).
     # PyInstaller does not support --file-version/--product-version; must use --version-file.
     if [ "$PLATFORM" = "Windows" ]; then
-        local ver_tuple="${VERSION//./, }, 0"
-        python3 -c "
-print('''# UTF-8
-VSVersionInfo(
-  ffi=FixedFileInfo(
-    filevers=(${ver_tuple}),
-    prodvers=(${ver_tuple}),
-    mask=0x3f,
-    flags=0x0,
-    OS=0x40004,
-    fileType=0x1,
-    subtype=0x0,
-    date=(0, 0)
-  ),
-  kids=[
-    StringFileInfo([StringTable('040904B0', [
-      StringStruct('FileDescription', 'Simple Edge TTS'),
-      StringStruct('FileVersion', '${VERSION}.0'),
-      StringStruct('InternalName', '${APP_NAME}'),
-      StringStruct('OriginalFilename', '${APP_NAME}.exe'),
-      StringStruct('ProductName', 'Simple Edge TTS'),
-      StringStruct('ProductVersion', '${VERSION}.0'),
-    ])]),
-    VarFileInfo([VarStruct('Translation', [0x0409, 1200])])
-  ]
-)
-''')
-" > version_info.txt
+        local major minor patch
+        IFS='.' read -r major minor patch <<< "$VERSION"
+        sed -e "s/__MAJOR__/${major}/g" \
+            -e "s/__MINOR__/${minor}/g" \
+            -e "s/__PATCH__/${patch}/g" \
+            -e "s/__VERSION__/${VERSION}/g" \
+            version_info.template > version_info.txt
         pyinstaller_args+=(--version-file version_info.txt)
         pass "Generated version_info.txt (v${VERSION})"
     fi
