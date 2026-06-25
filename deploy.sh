@@ -83,6 +83,7 @@ do_build() {
         --name "$APP_NAME"
         --windowed
         --onedir
+        --noupx
         --add-data "${RESOURCES_DIR}${sep}${RESOURCES_DIR}"
         --add-data "src/static${sep}src/static"
         --add-data "frontend/dist${sep}frontend/dist"
