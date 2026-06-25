@@ -1,0 +1,58 @@
+# Third-Party Licenses
+
+This project uses the following open-source libraries. Their licenses are
+listed below for attribution and compliance.
+
+## Python Dependencies
+
+| Package | License | URL |
+|---------|---------|-----|
+| edge-tts | MIT | https://github.com/rany2/edge-tts |
+| pywebview | BSD-3-Clause | https://github.com/nicegui-dev/pywebview |
+| PySide6 | LGPL-3.0 | https://doc.qt.io/qtforpython-6/ |
+| pystray | LGPL-3.0 | https://github.com/moses-palmer/pystray |
+| Pillow | HPND (Historical Permission Notice and Disclaimer) | https://python-pillow.org/ |
+
+### Dev-only (not distributed)
+
+| Package | License | URL |
+|---------|---------|-----|
+| pytest | MIT | https://docs.pytest.org/ |
+| pytest-qt | MIT | https://github.com/pytest-dev/pytest-qt |
+| pytest-asyncio | MIT | https://github.com/pytest-dev/pytest-asyncio |
+| mypy | MIT | https://mypy-lang.org/ |
+| ruff | MIT | https://github.com/astral-sh/ruff |
+| PyInstaller | GPL-2.0 (with exception for built apps) | https://pyinstaller.org/ |
+
+## Frontend Dependencies
+
+| Package | License | URL |
+|---------|---------|-----|
+| react | MIT | https://react.dev/ |
+| react-dom | MIT | https://react.dev/ |
+| tailwindcss | MIT | https://tailwindcss.com/ |
+| vite | MIT | https://vite.dev/ |
+| lucide-react | ISC | https://lucide.dev/ |
+| shadcn | MIT | https://ui.shadcn.com/ |
+| class-variance-authority | Apache-2.0 | https://cva.style/ |
+| clsx | MIT | https://github.com/lukeed/clsx |
+| tailwind-merge | MIT | https://github.com/dcastil/tailwind-merge |
+| tw-animate-css | MIT | https://github.com/magicuidesign/tw-animate-css |
+| @base-ui/react | MIT | https://github.com/mui/base-ui |
+| @fontsource-variable/geist | OFL-1.1 | https://github.com/fontsource/fontsource |
+| typescript | Apache-2.0 | https://www.typescriptlang.org/ |
+| oxlint | MIT | https://oxc.rs/ |
+
+## Note on LGPL-3.0 Libraries (pystray, PySide6)
+
+pystray and PySide6 are used as unmodified libraries installed via pip.
+Per LGPL-3.0 §4, users can replace these libraries by reinstalling
+alternative versions via `pip install` or `uv pip install`. The application
+does not statically link or modify these libraries.
+
+## Note on PyInstaller (GPL-2.0)
+
+PyInstaller is used only during the build process to package the application.
+The PyInstaller bootloader has a special exception that allows distribution
+of the packaged application under any license. PyInstaller itself is not
+distributed with the application binary.
