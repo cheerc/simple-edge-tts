@@ -88,12 +88,21 @@ class AudioPlayer:
             self._eval_js("window.audioPlayerBridge.stopAudio()")
 
     def notify_playback_finished(self) -> None:
-        """Called from JS when audio playback ends naturally."""
+        """Called from JS when audio playback ends naturally.
+
+        Dispatches 'audioPlaybackFinished' window event so the React
+        frontend can react to playback completion (e.g. reset speaking
+        state). Ref: #74 — setSpeaking(false) must wait until here.
+        """
         self._current_file = None
         self._set_state(PlayerState.IDLE)
         self.playback_finished.emit()
         if self.on_playback_finished is not None:
             self.on_playback_finished()
+        # Notify React frontend via window event
+        self._eval_js(
+            "window.dispatchEvent(new Event('audioPlaybackFinished'))"
+        )
 
     def _set_state(self, new_state: PlayerState) -> None:
         self._state = new_state

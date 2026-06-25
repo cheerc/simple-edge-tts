@@ -97,32 +97,32 @@
       audio.currentTime = 0;
     }
 
-    var url = await filePathToUrl(filePath);
-    currentSrc = filePath;
-    audio.src = url;
+    // Idempotent guard: ensure notifyPythonFinished() is called exactly
+    // once regardless of which completion path fires first (onended,
+    // onerror, or .play() catch). Ref: #63 — double-notify fix.
+    var finished = false;
+    function finishOnce() {
+      if (finished) return;
+      finished = true;
+      currentSrc = null;
+      notifyPythonFinished();
+    }
 
-    // Return a Promise that resolves when playback ends.
-    // This lets Python's evaluate_js() (and thus the React frontend)
-    // wait until audio finishes before setting speaking=false.
-    // Ref: #63, #74 — proper playback lifecycle.
-    return new Promise(function (resolve, reject) {
-      audio.onended = function () {
-        currentSrc = null;
-        notifyPythonFinished();
-        resolve();
-      };
-      audio.onerror = function (e) {
-        console.error("Audio playback error:", e);
-        currentSrc = null;
-        notifyPythonFinished();
-        reject(e);
-      };
-      audio.play().catch(function (err) {
-        currentSrc = null;
-        notifyPythonFinished();
-        reject(err);
-      });
-    });
+    audio.onended = finishOnce;
+    audio.onerror = function (e) {
+      console.error("Audio playback error:", e);
+      finishOnce();
+    };
+
+    try {
+      var url = await filePathToUrl(filePath);
+      currentSrc = filePath;
+      audio.src = url;
+      await audio.play();
+    } catch (err) {
+      console.error("Failed to play audio:", err);
+      finishOnce();
+    }
   }
 
   /**
