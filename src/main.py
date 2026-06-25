@@ -96,6 +96,21 @@ def main():
     # come first. pystray runs its own event loop in a background thread.
     tray.start()
 
+    # Ref: #63 — Inject audio player bridge JS into WebView on page load.
+    # audio_player_bridge.js defines window.audioPlayerBridge (IIFE) which
+    # AudioPlayer.play() calls via evaluate_js(). Without injection, the
+    # bridge global is undefined and playAudio() silently fails.
+    _bridge_js_path = Path(__file__).parent / "static" / "js" / "audio_player_bridge.js"
+
+    def _on_loaded():
+        try:
+            bridge_js = _bridge_js_path.read_text(encoding="utf-8")
+            window.evaluate_js(bridge_js)
+        except Exception:
+            pass  # Non-fatal: audio preview won't work but app still functions
+
+    window.events.loaded += _on_loaded
+
     # Ref: #43 — Pre-fetch voice list while the default executor is still
     # alive. After webview.start() blocks the main thread, Python's atexit
     # may shut down the default executor, breaking aiohttp DNS resolution.
