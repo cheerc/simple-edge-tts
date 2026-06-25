@@ -147,6 +147,17 @@ def main():
 
     window.events.loaded += _on_loaded
 
+    # Ref: #77 — Register closing handler to prevent _eval_js deadlock on
+    # X-button close. pywebview fires `closing` from Cocoa's should_close
+    # delegate (locked=True, runs synchronously) BEFORE WebKit cleanup
+    # starts. Calling begin_shutdown() here sets the shutdown flag so
+    # _eval_js short-circuits during window teardown.
+    # Returns None (not False) to allow the close to proceed.
+    def _on_window_closing():
+        audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock on X-close
+
+    window.events.closing += _on_window_closing
+
     # Ref: #43 — Pre-fetch voice list while the default executor is still
     # alive. After webview.start() blocks the main thread, Python's atexit
     # may shut down the default executor, breaking aiohttp DNS resolution.
