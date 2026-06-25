@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.ui.system_tray import SystemTrayManager, _create_default_icon, _load_icon
+from src.system_tray import SystemTrayManager, _create_default_icon, _load_icon
 
 
 class FakeWindow:
@@ -60,9 +60,9 @@ def test_system_tray_creation(tray):
     assert tray.is_visible() is False
 
 
-@patch("src.ui.system_tray.Icon", create=True)
-@patch("src.ui.system_tray.Menu", create=True)
-@patch("src.ui.system_tray.MenuItem", create=True)
+@patch("src.system_tray.Icon", create=True)
+@patch("src.system_tray.Menu", create=True)
+@patch("src.system_tray.MenuItem", create=True)
 def test_system_tray_start(mock_menuitem, mock_menu, mock_icon_cls, tray):
     """start() creates an Icon and calls run_detached()."""
     mock_icon = MagicMock()
