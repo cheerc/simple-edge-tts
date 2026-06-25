@@ -38,9 +38,9 @@
    * and we use it with pywebview's API to get the file content.
    *
    * @param {string} filePath - Absolute path to the audio file
-   * @returns {string} URL suitable for HTMLAudioElement.src
+   * @returns {Promise<string>} URL suitable for HTMLAudioElement.src
    */
-  function filePathToUrl(filePath) {
+  async function filePathToUrl(filePath) {
     // When pywebview runs with http_server=True and serves from a known root,
     // we can construct a relative URL. For cross-platform compatibility,
     // we expose a Python API endpoint that serves the audio file.
@@ -53,7 +53,8 @@
       typeof window.pywebview.api !== "undefined" &&
       typeof window.pywebview.api.get_audio_url === "function"
     ) {
-      return window.pywebview.api.get_audio_url(filePath);
+      // pywebview API calls return Promises — must await
+      return await window.pywebview.api.get_audio_url(filePath);
     }
     // Fallback for development/testing: try file:// protocol
     return "file:///" + filePath.replace(/\\/g, "/").replace(/^\//, "");
@@ -98,7 +99,7 @@
    * Play an audio file.
    * @param {string} filePath - Absolute path to the audio file
    */
-  function playAudio(filePath) {
+  async function playAudio(filePath) {
     var audio = getAudioElement();
 
     // Stop current playback if any
@@ -107,19 +108,16 @@
       audio.currentTime = 0;
     }
 
-    var url = filePathToUrl(filePath);
-    currentSrc = filePath;
-    audio.src = url;
-    audio
-      .play()
-      .then(function () {
-        // Playback started successfully
-      })
-      .catch(function (err) {
-        console.error("Failed to play audio:", err);
-        currentSrc = null;
-        notifyPythonFinished();
-      });
+    try {
+      var url = await filePathToUrl(filePath);
+      currentSrc = filePath;
+      audio.src = url;
+      await audio.play();
+    } catch (err) {
+      console.error("Failed to play audio:", err);
+      currentSrc = null;
+      notifyPythonFinished();
+    }
   }
 
   /**

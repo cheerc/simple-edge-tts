@@ -226,6 +226,22 @@ class Api:
             logger.error("Stop playback failed: %s", e)
             return json.dumps({"success": False, "error": str(e)})
 
+    def get_audio_url(self, file_path: str) -> str:
+        """Convert a local file path to a URL playable by the WebView.
+
+        Called by audio_player_bridge.js filePathToUrl() to resolve
+        absolute file paths to proper file:// URLs.
+
+        Ref: #63 — audio bridge needs URL resolution for HTMLAudioElement.
+
+        Args:
+            file_path: Absolute path to the audio file.
+
+        Returns:
+            A file:// URL string (not JSON-wrapped — bridge expects raw URL).
+        """
+        return Path(file_path).resolve().as_uri()
+
     def check_update(self) -> str:
         """Check GitHub for a newer release.
 
