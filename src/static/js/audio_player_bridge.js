@@ -105,6 +105,9 @@
       if (finished) return;
       finished = true;
       currentSrc = null;
+      // Dispatch event directly in JS for React — avoids Python→JS
+      // reentry via _eval_js which deadlocks during shutdown (#77).
+      window.dispatchEvent(new Event("audioPlaybackFinished"));
       notifyPythonFinished();
     }
 

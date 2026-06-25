@@ -146,3 +146,39 @@ class TestFilePath:
     def test_current_file_none_when_idle(self):
         player = AudioPlayer()
         assert player.current_file is None
+
+
+class TestShutdownGuard:
+    def test_begin_shutdown_prevents_eval_js(self):
+        """After begin_shutdown(), _eval_js must not call evaluate_js."""
+        player = AudioPlayer()
+        mock_window = MagicMock()
+        player.set_webview_window(mock_window)
+        player.begin_shutdown()
+        player._eval_js("some_code()")
+        mock_window.evaluate_js.assert_not_called()
+
+    def test_stop_skips_js_after_shutdown(self):
+        """stop() should not call evaluate_js after begin_shutdown."""
+        player = AudioPlayer()
+        mock_window = MagicMock()
+        player.set_webview_window(mock_window)
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+        mock_window.evaluate_js.reset_mock()
+        player.begin_shutdown()
+        player.stop()
+        mock_window.evaluate_js.assert_not_called()
+        assert player.state == PlayerState.IDLE
+
+    def test_notify_finished_no_eval_js(self):
+        """notify_playback_finished must not call _eval_js (moved to JS)."""
+        player = AudioPlayer()
+        mock_window = MagicMock()
+        player.set_webview_window(mock_window)
+        with patch("src.audio_player.Path.exists", return_value=True):
+            player.play("/fake/path.mp3")
+        mock_window.evaluate_js.reset_mock()
+        player.notify_playback_finished()
+        mock_window.evaluate_js.assert_not_called()
+        assert player.state == PlayerState.IDLE

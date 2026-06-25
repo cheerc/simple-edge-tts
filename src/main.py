@@ -113,6 +113,7 @@ def main():
     # Ref: #47 — Quit handler must stop tray + event loop before
     # destroying the window, otherwise daemon threads hang at shutdown.
     def _on_quit():
+        audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
         tray.stop()
         shutdown_event_loop()
         window.destroy()
