@@ -61,11 +61,21 @@ do_clean() {
     pass "Clean complete"
 }
 
+# Ref: #90 — Extract version from pyproject.toml (single source of truth).
+get_version() {
+    python3 -c "import re; print(re.search(r'version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read()).group(1))"
+}
+
 do_build() {
     detect_platform
 
     local sep
     sep=$(get_path_sep)
+
+    # Ref: #90 — Read version once, use for all platform-specific embedding.
+    local VERSION
+    VERSION=$(get_version)
+    info "Version: ${VERSION} (from pyproject.toml)"
 
     # Build frontend assets
     info "Building frontend..."
@@ -94,6 +104,41 @@ do_build() {
         "$ENTRY_POINT"
     )
 
+    # Ref: #90 — Windows .exe version metadata via --version-file (VSVersionInfo).
+    # PyInstaller does not support --file-version/--product-version; must use --version-file.
+    if [ "$PLATFORM" = "Windows" ]; then
+        local ver_tuple="${VERSION//./, }, 0"
+        python3 -c "
+print('''# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(${ver_tuple}),
+    prodvers=(${ver_tuple}),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('FileDescription', 'Simple Edge TTS'),
+      StringStruct('FileVersion', '${VERSION}.0'),
+      StringStruct('InternalName', '${APP_NAME}'),
+      StringStruct('OriginalFilename', '${APP_NAME}.exe'),
+      StringStruct('ProductName', 'Simple Edge TTS'),
+      StringStruct('ProductVersion', '${VERSION}.0'),
+    ])]),
+    VarFileInfo([VarStruct('Translation', [0x0409, 1200])])
+  ]
+)
+''')
+" > version_info.txt
+        pyinstaller_args+=(--version-file version_info.txt)
+        pass "Generated version_info.txt (v${VERSION})"
+    fi
+
     # Add macOS-specific icon if available
     local icon_path="${RESOURCES_DIR}/icons/icon.icns"
     if [ -f "$icon_path" ] && [ "$PLATFORM" = "macOS" ]; then
@@ -110,6 +155,14 @@ do_build() {
         pass "PyInstaller build"
     else
         fail "PyInstaller build"
+    fi
+
+    # Ref: #90 — Patch macOS .app Info.plist with correct version from pyproject.toml.
+    if [ "$PLATFORM" = "macOS" ] && [ -d "dist/${APP_NAME}.app" ]; then
+        info "Patching Info.plist version → ${VERSION}..."
+        plutil -replace CFBundleShortVersionString -string "$VERSION" "dist/${APP_NAME}.app/Contents/Info.plist"
+        plutil -replace CFBundleVersion -string "$VERSION" "dist/${APP_NAME}.app/Contents/Info.plist"
+        pass "Info.plist version set to ${VERSION}"
     fi
 
     # Post-build: macOS .dmg creation (optional)
@@ -136,16 +189,22 @@ do_build() {
             fi
             rm -rf "$staging"
         fi
+
+        # Ref: #90 — Clean raw PyInstaller onedir output; only .app + .dmg needed.
+        if [ -d "dist/${APP_NAME}" ]; then
+            rm -rf "dist/${APP_NAME}"
+            pass "Cleaned raw onedir output (dist/${APP_NAME}/)"
+        fi
     fi
 
     # Summary
     echo
-    info "Build complete!"
-    echo "  Output: dist/${APP_NAME}/"
+    info "Build complete! (v${VERSION})"
     if [ "$PLATFORM" = "macOS" ]; then
-        echo "  App:    dist/${APP_NAME}/${APP_NAME}.app (if --onedir)"
+        echo "  App: dist/${APP_NAME}.app"
+        echo "  DMG: dist/${APP_NAME}.dmg"
     elif [ "$PLATFORM" = "Windows" ]; then
-        echo "  Exe:    dist/${APP_NAME}/${APP_NAME}.exe"
+        echo "  Exe: dist/${APP_NAME}/${APP_NAME}.exe"
     else
         echo "  Binary: dist/${APP_NAME}/${APP_NAME}"
     fi
