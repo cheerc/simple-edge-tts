@@ -10,6 +10,7 @@
 import { useState, useEffect, useMemo } from "react";
 import type { Voice } from "../types";
 import type { UseApiReturn } from "../hooks/useApi";
+import { EditableSliderValue } from "./EditableSliderValue";
 
 interface VoiceSelectorProps {
   api: UseApiReturn;
@@ -197,9 +198,15 @@ export function VoiceSelector({
             onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
             style={{ flex: 1 }}
           />
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)", width: 38, textAlign: "left" }}>
-            {speed.toFixed(1)}×
-          </span>
+          <EditableSliderValue
+            value={speed}
+            onChange={onSpeedChange}
+            min={0.5}
+            max={2.0}
+            step={0.1}
+            format={(v) => `${v.toFixed(1)}×`}
+            style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)", width: 38, textAlign: "left" }}
+          />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-secondary)", width: 42, textAlign: "right" }}>
@@ -215,9 +222,16 @@ export function VoiceSelector({
             onChange={(e) => onPitchChange(parseInt(e.target.value, 10))}
             style={{ flex: 1 }}
           />
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)", width: 38, textAlign: "left" }}>
-            {pitch > 0 ? "+" : ""}{pitch}Hz
-          </span>
+          <EditableSliderValue
+            value={pitch}
+            onChange={onPitchChange}
+            min={-50}
+            max={50}
+            step={1}
+            format={(v) => `${v > 0 ? "+" : ""}${v}Hz`}
+            parse={(s) => parseInt(s.replace(/[^\d.+-]/g, ""), 10)}
+            style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)", width: 38, textAlign: "left" }}
+          />
         </div>
       </div>
     </div>
