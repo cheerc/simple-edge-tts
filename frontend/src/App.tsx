@@ -1,12 +1,8 @@
 /**
- * Main application layout — 2-column wide layout.
+ * Main application layout — single column.
  *
- * Left panel (40%): VoiceSelector
- * Right panel (60%): TextEditor + ActionBar
- * Header spans full width, Toast system at root.
- *
- * Per design spec §2.1 layout.
- * Ref: T18 Plan §9 — App Layout
+ * Top to bottom: Header → Voice Controls Card → Text Area → Action Bar.
+ * Per mockup v2 — T25 UI Layout Rework.
  */
 
 import { useState, useCallback, useEffect } from "react";
@@ -86,6 +82,15 @@ function App() {
     }
   }, [text, selectedVoice, speed, pitch, api, addToast, speedToRate, t]);
 
+  const handleStop = useCallback(async () => {
+    try {
+      await api.stopAudio();
+    } catch {
+      // Fail silently
+    }
+    setSpeaking(false);
+  }, [api]);
+
   const handleSave = useCallback(async () => {
     if (!text.trim() || !api.ready) return;
 
@@ -108,125 +113,68 @@ function App() {
 
   return (
     <div
-      className="flex flex-col min-h-screen"
       style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
         background: "var(--background)",
-        padding: "var(--space-8)",
       }}
     >
       {/* Header — full width */}
       <Header onSettingsClick={() => setSettingsOpen(true)} onThemeToggle={toggleTheme} isDark={isDark} t={t} />
 
-      {/* Main content — 2-column layout */}
+      {/* Content area — single column */}
       <div
-        className="flex flex-1 gap-5 mt-5"
-        style={{ minHeight: 0 }}
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+          padding: "20px 28px",
+          overflow: "hidden",
+          minHeight: 0,
+        }}
       >
-        {/* Left panel (40%) — Voice Selection */}
+        {/* Voice Controls Card */}
+        <VoiceSelector
+          api={api}
+          selectedVoice={selectedVoice}
+          onVoiceChange={setSelectedVoice}
+          speed={speed}
+          onSpeedChange={setSpeed}
+          pitch={pitch}
+          onPitchChange={setPitch}
+          t={t}
+        />
+
+        {/* Text Area — fills remaining space */}
         <div
-          className="flex flex-col"
           style={{
-            width: "40%",
-            minWidth: 280,
+            flex: 1,
             background: "var(--color-surface)",
             border: "1px solid var(--border)",
-            borderRadius: "var(--radius-xl)",
-            boxShadow: "var(--shadow-card)",
+            borderRadius: 14,
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
             overflow: "hidden",
+            minHeight: 0,
           }}
         >
-          <div
-            style={{
-              padding: "var(--space-4) var(--space-5)",
-              borderBottom: "1px solid var(--border)",
-            }}
-          >
-            <h2
-              style={{
-                fontSize: 16,
-                fontWeight: 600,
-                lineHeight: 1.4,
-                letterSpacing: "-0.1px",
-                color: "var(--color-text-primary)",
-                margin: 0,
-              }}
-            >
-              {t("voice_selection")}
-            </h2>
-          </div>
-          <VoiceSelector
-            api={api}
-            selectedVoice={selectedVoice}
-            onVoiceChange={setSelectedVoice}
-            t={t}
-          />
+          <TextEditor text={text} onTextChange={setText} t={t} />
         </div>
 
-        {/* Right panel (60%) — Text Editor + Action Bar */}
-        <div
-          className="flex flex-col flex-1"
-          style={{
-            background: "var(--color-surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-xl)",
-            boxShadow: "var(--shadow-card)",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              padding: "var(--space-4) var(--space-5)",
-              borderBottom: "1px solid var(--border)",
-            }}
-          >
-            <h2
-              style={{
-                fontSize: 16,
-                fontWeight: 600,
-                lineHeight: 1.4,
-                letterSpacing: "-0.1px",
-                color: "var(--color-text-primary)",
-                margin: 0,
-              }}
-            >
-              {t("text_input")}
-            </h2>
-          </div>
-
-          <div
-            className="flex flex-col flex-1"
-            style={{ padding: "var(--space-5)" }}
-          >
-            <TextEditor text={text} onTextChange={setText} t={t} />
-          </div>
-
-          <ActionBar
-            speed={speed}
-            onSpeedChange={setSpeed}
-            pitch={pitch}
-            onPitchChange={setPitch}
-            onSpeak={handleSpeak}
-            onSave={handleSave}
-            speaking={speaking}
-            saving={saving}
-            disabled={!text.trim() || !api.ready}
-            t={t}
-          />
-        </div>
+        {/* Action Bar — 3 buttons */}
+        <ActionBar
+          onSpeak={handleSpeak}
+          onStop={handleStop}
+          onSave={handleSave}
+          speaking={speaking}
+          saving={saving}
+          disabled={!text.trim() || !api.ready}
+          t={t}
+        />
       </div>
-
-      {/* Responsive: stack on narrow screens */}
-      <style>{`
-        @media (max-width: 999px) {
-          .flex.flex-1.gap-5.mt-5 {
-            flex-direction: column;
-          }
-          .flex.flex-1.gap-5.mt-5 > div:first-child {
-            width: 100% !important;
-            min-width: unset !important;
-          }
-        }
-      `}</style>
 
       {/* Settings modal */}
       <SettingsModal

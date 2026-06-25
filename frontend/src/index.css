@@ -173,6 +173,13 @@
     --shadow-focus: 0 0 0 3px rgba(224,85,64,0.3);
 }
 
+/* Dark mode: make <select>/<option> text visible */
+[data-theme="dark"] select,
+[data-theme="dark"] option {
+    color: var(--color-text-primary);
+    background: var(--color-surface);
+}
+
 @layer base {
     * {
         @apply border-border outline-ring/50;

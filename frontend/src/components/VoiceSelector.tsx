@@ -1,11 +1,10 @@
 /**
- * Voice selector component — language + voice dropdowns.
+ * Voice controls card — language/voice dropdowns + speed/pitch sliders.
  *
- * Fetches voice list from PyWebView API on mount, groups by locale,
- * and provides language/voice selection with preview details.
- * Per design spec §3.6, §3.7, §4.1.
+ * Horizontal layout: left = language + voice selects, right = speed + pitch sliders.
+ * Per mockup v2 — single row voice controls card.
  *
- * Ref: T18 Plan §6 — Voice Selector
+ * Ref: T25 — UI Layout Rework
  */
 
 import { useState, useEffect, useMemo } from "react";
@@ -16,10 +15,17 @@ interface VoiceSelectorProps {
   api: UseApiReturn;
   selectedVoice: string;
   onVoiceChange: (voice: string) => void;
+  speed: number;
+  onSpeedChange: (speed: number) => void;
+  pitch: number;
+  onPitchChange: (pitch: number) => void;
   t: (key: string) => string;
 }
 
-export function VoiceSelector({ api, selectedVoice, onVoiceChange, t }: VoiceSelectorProps) {
+export function VoiceSelector({
+  api, selectedVoice, onVoiceChange,
+  speed, onSpeedChange, pitch, onPitchChange, t,
+}: VoiceSelectorProps) {
   const [voices, setVoices] = useState<Voice[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedLanguage, setSelectedLanguage] = useState("zh-TW");
@@ -46,7 +52,6 @@ export function VoiceSelector({ api, selectedVoice, onVoiceChange, t }: VoiceSel
 
   const languages = useMemo(() => {
     const locales = [...new Set(voices.map((v) => v.Locale))].sort();
-    // Prioritize zh-TW and en-US
     const priority = ["zh-TW", "en-US"];
     const sorted = priority.filter((l) => locales.includes(l));
     const rest = locales.filter((l) => !priority.includes(l));
@@ -58,11 +63,6 @@ export function VoiceSelector({ api, selectedVoice, onVoiceChange, t }: VoiceSel
     [voices, selectedLanguage]
   );
 
-  const currentVoice = useMemo(
-    () => voices.find((v) => v.ShortName === selectedVoice),
-    [voices, selectedVoice]
-  );
-
   // Auto-select first voice when language changes
   useEffect(() => {
     if (filteredVoices.length > 0 && !filteredVoices.find((v) => v.ShortName === selectedVoice)) {
@@ -70,170 +70,156 @@ export function VoiceSelector({ api, selectedVoice, onVoiceChange, t }: VoiceSel
     }
   }, [filteredVoices, selectedVoice, onVoiceChange]);
 
+  const selectStyle: React.CSSProperties = {
+    height: 40,
+    background: "var(--color-surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 10,
+    padding: "0 12px",
+    fontSize: 14,
+    color: "var(--color-text-primary)",
+    cursor: "pointer",
+    outline: "none",
+    width: "100%",
+    transition: "border-color 0.15s",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--color-text-secondary)",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+  };
+
   if (loading) {
     return (
-      <div className="flex flex-col gap-3" style={{ padding: "var(--space-5)" }}>
-        {[1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="animate-pulse rounded-lg"
-            style={{
-              height: 40,
-              background: "var(--color-surface-hover)",
-            }}
-          />
-        ))}
+      <div
+        style={{
+          background: "var(--color-surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 14,
+          padding: "20px 24px",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+        }}
+      >
+        <div className="flex gap-4">
+          {[1, 2].map((i) => (
+            <div
+              key={i}
+              className="animate-pulse rounded-lg flex-1"
+              style={{ height: 40, background: "var(--color-surface-hover)" }}
+            />
+          ))}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4" style={{ padding: "var(--space-5)" }}>
-      {/* Language dropdown */}
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="language-select"
-          style={{
-            fontSize: 12,
-            fontWeight: 500,
-            lineHeight: 1.4,
-            letterSpacing: "0.2px",
-            color: "var(--color-text-secondary)",
-          }}
-        >
-          {t("language")}
-        </label>
-        <select
-          id="language-select"
-          value={selectedLanguage}
-          onChange={(e) => setSelectedLanguage(e.target.value)}
-          style={{
-            height: 40,
-            background: "var(--color-surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-3)",
-            fontSize: 14,
-            lineHeight: 1.5,
-            color: "var(--color-text-primary)",
-            cursor: "pointer",
-            outline: "none",
-            width: "100%",
-          }}
-          onFocus={(e) => {
-            e.currentTarget.style.borderColor = "var(--color-border-focus)";
-            e.currentTarget.style.boxShadow = "var(--shadow-focus)";
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.borderColor = "var(--border)";
-            e.currentTarget.style.boxShadow = "none";
-          }}
-        >
-          {languages.map((lang) => (
-            <option key={lang} value={lang}>
-              {lang}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Voice dropdown */}
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="voice-select"
-          style={{
-            fontSize: 12,
-            fontWeight: 500,
-            lineHeight: 1.4,
-            letterSpacing: "0.2px",
-            color: "var(--color-text-secondary)",
-          }}
-        >
-          {t("voice_selection")}
-        </label>
-        <select
-          id="voice-select"
-          value={selectedVoice}
-          onChange={(e) => onVoiceChange(e.target.value)}
-          style={{
-            height: 40,
-            background: "var(--color-surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-3)",
-            fontSize: 14,
-            lineHeight: 1.5,
-            color: "var(--color-text-primary)",
-            cursor: "pointer",
-            outline: "none",
-            width: "100%",
-          }}
-          onFocus={(e) => {
-            e.currentTarget.style.borderColor = "var(--color-border-focus)";
-            e.currentTarget.style.boxShadow = "var(--shadow-focus)";
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.borderColor = "var(--border)";
-            e.currentTarget.style.boxShadow = "none";
-          }}
-        >
-          {filteredVoices.map((v) => (
-            <option key={v.ShortName} value={v.ShortName}>
-              {v.FriendlyName || v.ShortName} ({v.Gender})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Voice details card */}
-      {currentVoice && (
-        <div
-          className="flex flex-col gap-2"
-          style={{
-            padding: "var(--space-4)",
-            background: "var(--color-surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-lg)",
-            transition: `opacity var(--duration-fast) var(--ease-default)`,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: "var(--color-text-primary)",
+    <div
+      style={{
+        background: "var(--color-surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 14,
+        padding: "20px 24px",
+        display: "flex",
+        gap: 32,
+        alignItems: "flex-end",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+      }}
+    >
+      {/* Left: Language + Voice dropdowns */}
+      <div style={{ display: "flex", gap: 16, flex: 1 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+          <label htmlFor="language-select" style={labelStyle}>
+            {t("language")}
+          </label>
+          <select
+            id="language-select"
+            value={selectedLanguage}
+            onChange={(e) => setSelectedLanguage(e.target.value)}
+            style={selectStyle}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "var(--color-border-focus)";
+              e.currentTarget.style.boxShadow = "0 0 0 3px rgba(204,74,53,0.1)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.boxShadow = "none";
             }}
           >
-            {currentVoice.FriendlyName || currentVoice.ShortName}
-          </div>
-          <div className="flex gap-2">
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                padding: "2px 8px",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--color-accent-subtle)",
-                color: "var(--color-accent-main)",
-              }}
-            >
-              {currentVoice.Gender}
-            </span>
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                padding: "2px 8px",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--color-surface-hover)",
-                color: "var(--color-text-secondary)",
-              }}
-            >
-              {currentVoice.Locale}
-            </span>
-          </div>
+            {languages.map((lang) => (
+              <option key={lang} value={lang}>{lang}</option>
+            ))}
+          </select>
         </div>
-      )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+          <label htmlFor="voice-select" style={labelStyle}>
+            {t("voice_selection")}
+          </label>
+          <select
+            id="voice-select"
+            value={selectedVoice}
+            onChange={(e) => onVoiceChange(e.target.value)}
+            style={selectStyle}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "var(--color-border-focus)";
+              e.currentTarget.style.boxShadow = "0 0 0 3px rgba(204,74,53,0.1)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.boxShadow = "none";
+            }}
+          >
+            {filteredVoices.map((v) => (
+              <option key={v.ShortName} value={v.ShortName}>
+                {v.FriendlyName || v.ShortName} ({v.Gender})
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Right: Speed + Pitch sliders */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 220 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-secondary)", width: 42, textAlign: "right" }}>
+            {t("speed")}
+          </span>
+          <input
+            id="speed-slider"
+            type="range"
+            min={0.5}
+            max={2.0}
+            step={0.1}
+            value={speed}
+            onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
+            style={{ flex: 1 }}
+          />
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)", width: 38, textAlign: "left" }}>
+            {speed.toFixed(1)}×
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-secondary)", width: 42, textAlign: "right" }}>
+            {t("pitch")}
+          </span>
+          <input
+            id="pitch-slider"
+            type="range"
+            min={-50}
+            max={50}
+            step={1}
+            value={pitch}
+            onChange={(e) => onPitchChange(parseInt(e.target.value, 10))}
+            style={{ flex: 1 }}
+          />
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)", width: 38, textAlign: "left" }}>
+            {pitch > 0 ? "+" : ""}{pitch}Hz
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
