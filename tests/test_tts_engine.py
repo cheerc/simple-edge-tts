@@ -154,3 +154,51 @@ class TestTTSEngineGenerate:
 
         mock_communicate.assert_called_once()
         mock_instance.save.assert_called_once_with(str(output))
+
+
+class TestShutdownEventLoop:
+    """Tests for shutdown_event_loop() — graceful event loop teardown (Issue #47 fix)."""
+
+    def test_shutdown_stops_running_loop(self):
+        """shutdown_event_loop() stops the persistent event loop and joins the thread."""
+        from src.tts_engine import _get_loop, shutdown_event_loop
+
+        # Ensure the loop is running
+        loop = _get_loop()
+        assert loop.is_running()
+
+        shutdown_event_loop()
+
+        # After shutdown, loop should be stopped
+        assert not loop.is_running()
+
+    def test_shutdown_idempotent_when_no_loop(self):
+        """shutdown_event_loop() is safe to call when no loop exists."""
+        import src.tts_engine as tts_mod
+        from src.tts_engine import shutdown_event_loop
+
+        # Force module state to no loop
+        old_loop = tts_mod._loop
+        old_thread = tts_mod._thread
+        tts_mod._loop = None
+        tts_mod._thread = None
+        try:
+            shutdown_event_loop()  # Should not raise
+        finally:
+            # Restore so other tests aren't affected
+            tts_mod._loop = old_loop
+            tts_mod._thread = old_thread
+
+    def test_shutdown_allows_loop_recreation(self):
+        """After shutdown, _get_loop() creates a fresh loop that works."""
+        from src.tts_engine import _get_loop, shutdown_event_loop
+
+        # Get initial loop and shut it down
+        loop1 = _get_loop()
+        shutdown_event_loop()
+
+        # Get a new loop — should be a fresh one
+        loop2 = _get_loop()
+        assert loop2.is_running()
+        assert loop2 is not loop1
+

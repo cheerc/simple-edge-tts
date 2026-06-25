@@ -67,6 +67,31 @@ def run_async(coro):
     return future.result(timeout=30)
 
 
+def shutdown_event_loop(timeout: float = 5.0) -> None:
+    """Gracefully stop the persistent event loop and join its thread.
+
+    Must be called during app quit, before Python's finalization attempts
+    to join daemon threads. Without this, _Py_Finalize deadlocks on the
+    async-event-loop thread blocked in run_forever().
+
+    Safe to call multiple times or when no loop exists.
+    Ref: #47 — prevent shutdown hang from daemon thread join.
+    """
+    global _loop, _thread
+    with _lock:
+        loop = _loop
+        thread = _thread
+        _loop = None
+        _thread = None
+
+    if loop is not None and loop.is_running():
+        loop.call_soon_threadsafe(loop.stop)
+
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=timeout)
+
+
+
 def format_rate(value: int) -> str:
     return f"+{value}%" if value >= 0 else f"{value}%"
 
