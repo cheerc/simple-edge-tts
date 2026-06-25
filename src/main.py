@@ -93,6 +93,10 @@ def main():
 
     url = _get_frontend_url()
 
+    # Ref: #73 — Set background_color to dark theme bg (#1a1a2e) to prevent
+    # white flash on startup. The app defaults to dark mode (system pref or
+    # localStorage), so matching the dark background eliminates the jarring
+    # white screen during the 2-3s before React mounts.
     window = webview.create_window(
         title="Simple Edge TTS",
         url=url,
@@ -100,6 +104,7 @@ def main():
         width=1200,
         height=750,
         min_size=(900, 550),
+        background_color='#1a1a2e',
     )
 
     # Wire AudioPlayer to the webview window for JS bridge communication
@@ -167,13 +172,13 @@ def main():
 
     window.events.closing += _on_window_closing
 
-    # Ref: #43 — Pre-fetch voice list while the default executor is still
-    # alive. After webview.start() blocks the main thread, Python's atexit
-    # may shut down the default executor, breaking aiohttp DNS resolution.
-    # Cached voices will be served by TTSEngine.get_voices_sync().
-    tts_engine.prefetch_voices()
-
-    webview.start()
+    # Ref: #73 — Defer voice prefetch to after the window is displayed.
+    # webview.start(func=...) runs the callback in a background thread
+    # after the window is shown, so the UI appears instantly while voices
+    # are fetched in the background. prefetch_voices() uses the persistent
+    # event loop (Ref: #43) which has its own ThreadPoolExecutor, so it's
+    # safe to call after the main thread enters webview.start().
+    webview.start(func=tts_engine.prefetch_voices)
 
     # Ref: #47 — Clean up when webview exits normally (window closed via
     # title-bar X, not via tray Quit). Ensures event loop thread is joined
