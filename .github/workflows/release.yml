@@ -46,6 +46,15 @@ jobs:
           npm ci
           npm run build
 
+      # Ref: #90 — Extract version from pyproject.toml (single source of truth).
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(python3 -c "import re; print(re.search(r'version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read()).group(1))")
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+        shell: bash
+
       - name: Build with PyInstaller
         run: |
           # On Windows, find and force-include vcruntime140.dll for portability
@@ -74,8 +83,20 @@ jobs:
             --hidden-import edge_tts \
             --noconfirm \
             $VCRT_FLAG \
+            $VERSION_FLAG \
             src/main.py
         shell: bash
+        env:
+          VERSION_FLAG: ${{ matrix.platform == 'Windows' && format('--file-version {0}.0 --product-version {0}.0', steps.version.outputs.VERSION) || '' }}
+
+      # Ref: #90 — Patch Info.plist with correct version before packaging .dmg.
+      - name: Patch Info.plist version (macOS)
+        if: matrix.platform == 'macOS'
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          plutil -replace CFBundleShortVersionString -string "$VERSION" dist/simple-edge-tts.app/Contents/Info.plist
+          plutil -replace CFBundleVersion -string "$VERSION" dist/simple-edge-tts.app/Contents/Info.plist
+          echo "Info.plist version set to $VERSION"
 
       - name: Create .dmg (macOS)
         if: matrix.platform == 'macOS'
