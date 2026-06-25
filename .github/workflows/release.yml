@@ -52,10 +52,11 @@ jobs:
           # (PyInstaller excludes it by default, assuming system-installed)
           VCRT_FLAG=""
           if [ "${{ matrix.platform }}" = "Windows" ]; then
-            PYTHON_DIR=$(dirname "$(which python)")
+            PYTHON_DIR=$(cygpath -w "$(dirname "$(which python)")")
             for dll in vcruntime140.dll vcruntime140_1.dll; do
-              if [ -f "$PYTHON_DIR/$dll" ]; then
-                VCRT_FLAG="$VCRT_FLAG --add-binary $PYTHON_DIR/$dll${{ matrix.sep }}."
+              NATIVE_PATH="$PYTHON_DIR\\$dll"
+              if [ -f "$(cygpath -u "$NATIVE_PATH")" ]; then
+                VCRT_FLAG="$VCRT_FLAG --add-binary $NATIVE_PATH${{ matrix.sep }}."
               fi
             done
             echo "VC Runtime flags: $VCRT_FLAG"
