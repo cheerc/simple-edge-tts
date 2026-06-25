@@ -158,6 +158,7 @@ def main():
     # Ref: #47 — Clean up when webview exits normally (window closed via
     # title-bar X, not via tray Quit). Ensures event loop thread is joined
     # and tray is stopped so Python exits cleanly.
+    audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
     tray.stop()
     shutdown_event_loop()
 
