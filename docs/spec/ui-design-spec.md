@@ -534,8 +534,8 @@ Map design tokens to shadcn/ui's CSS variable convention (`--background`, `--for
 | System tray (pystray) | ✅ Implemented | T20 |
 | i18n live switching | ✅ Implemented | Hotfix |
 | CI frontend build + lint | ✅ Implemented | T21 |
-| Pitch slider | ❌ Deferred | Backend supports, no UI |
-| Format selection | ❌ Deferred | Backend MP3 only |
-| Dark/light theme | ❌ Deferred | — |
-| Auto-update | ❌ Deferred | — |
+| Pitch slider | ✅ Implemented | T22 |
+| Format selection | ❌ Not applicable | edge-tts API outputs MP3 only |
+| Dark/light theme | ✅ Implemented | T23 |
+| Auto-update | ✅ Implemented | T24 (detect + notify) |
 | Responsive stacking (<1000px) | ✅ Implemented | T18 |
