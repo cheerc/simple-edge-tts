@@ -116,12 +116,22 @@ do_build() {
         local dmg_path="dist/${APP_NAME}.dmg"
 
         if [ -d "$app_path" ]; then
-            if hdiutil create -volname "$APP_NAME" -srcfolder "dist/${APP_NAME}" \
+            # Ref: #66 — Stage .app + Applications symlink for drag-to-install DMG.
+            # hdiutil -srcfolder must point at a folder containing the .app
+            # (not the PyInstaller onedir folder, which lacks .app structure).
+            local staging="dist/dmg-staging"
+            rm -rf "$staging"
+            mkdir -p "$staging"
+            cp -R "$app_path" "$staging/"
+            ln -s /Applications "$staging/Applications"
+
+            if hdiutil create -volname "$APP_NAME" -srcfolder "$staging" \
                 -ov -format UDZO "$dmg_path" 2>/dev/null; then
                 pass ".dmg created: ${dmg_path}"
             else
                 echo -e "${RED}⚠ Warning${RESET}: .dmg creation failed (non-fatal)"
             fi
+            rm -rf "$staging"
         fi
     fi
 
