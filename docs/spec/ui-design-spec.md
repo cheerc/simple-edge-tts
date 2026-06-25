@@ -129,42 +129,38 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Window: ~1200 × 750 (default), min 900 × 550               │
-│  Background: #fafafa                                         │
-│  Content padding: 32px all sides                            │
+│  Window: ~1000 × 680, min 900 × 550                          │
+│  Background: #faf8f5 (var(--background))                     │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │              HEADER BAR (h: 48px)                       │  │
-│  │  Logo/App Name (left)     Settings ⚙ (right)          │  │
+│  │              HEADER BAR                                │  │
+│  │  App Name (left)       ☀️ Theme  ⚙ Settings (right)  │  │
 │  ├────────────────────────────────────────────────────────┤  │
 │  │                                                        │  │
-│  │  ┌─── LEFT PANEL (40%) ───┐  ┌── RIGHT PANEL (60%) ──┐│  │
-│  │  │                        │  │                        ││  │
-│  │  │  Voice Selection       │  │  Text Input Area       ││  │
-│  │  │  ├─ Language dropdown  │  │  (textarea, 100% h)    ││  │
-│  │  │  ├─ Voice dropdown     │  │                        ││  │
-│  │  │  └─ Preview button     │  │                        ││  │
-│  │  │                        │  │                        ││  │
-│  │  │  ────────────────────  │  │                        ││  │
-│  │  │                        │  │                        ││  │
-│  │  │  Voice Details         │  │                        ││  │
-│  │  │  (name, gender, locale)│  │                        ││  │
-│  │  │                        │  │                        ││  │
-│  │  └────────────────────────┘  └────────────────────────┘│  │
+│  │  ┌── VOICE CONTROLS CARD ─────────────────────────┐   │  │
+│  │  │  [語系 ▼] [聲音 ▼]      速度 ━━●━━ 1.0×       │   │  │
+│  │  │                          音調 ━━●━━ 0Hz        │   │  │
+│  │  └────────────────────────────────────────────────┘   │  │
 │  │                                                        │  │
-│  ├────────────────────────────────────────────────────────┤  │
-│  │              ACTION BAR (h: 60px)                       │  │
-│  │  Speed slider │ Format select │ [Speak] [Save] buttons │  │
+│  │  ┌── TEXT AREA (flex: 1) ─────────────────────────┐   │  │
+│  │  │  (textarea, fills remaining space)              │   │  │
+│  │  │                                                 │   │  │
+│  │  │                                    0 / 5000     │   │  │
+│  │  └────────────────────────────────────────────────┘   │  │
+│  │                                                        │  │
+│  │  ┌── ACTION BAR ──────────────────────────────────┐   │  │
+│  │  │  [▶ 試聽]  [■ 停止]  [↓ 另存新檔]              │   │  │
+│  │  │   primary    outline    secondary               │   │  │
+│  │  └────────────────────────────────────────────────┘   │  │
+│  │                                                        │  │
 │  └────────────────────────────────────────────────────────┘  │
-│                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ### 2.2 Responsive Behavior
 
 This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
-- **Default**: 1200×750 — 2-column layout (40/60 split)
-- **Narrow** (< 1000px): Stack to single column (voice above text)
+- **Default**: ~1000×680 — single column layout
 - **Min size**: 900×550 enforced by PyWebView config
 
 ---
@@ -261,42 +257,33 @@ This is a **desktop-only** app (PyWebView). No mobile breakpoints needed.
 | Min height | 200px |
 | Character count | bottom-right, `--text-caption`, `--color-text-muted` |
 
-### 3.8 Slider (Speed Control)
+### 3.8 Sliders (Speed + Pitch)
 
-| Property | Value |
-|----------|-------|
-| Track height | 4px |
-| Track color | `--color-border` |
-| Track fill | `--color-accent` |
-| Thumb size | 16px |
-| Thumb color | `--color-accent` |
-| Thumb border | 2px solid white |
-| Thumb shadow | `--shadow-sm` |
-| Thumb hover | scale 1.15 |
-| Label | `--text-label`, displayed above thumb |
-| Range | 0.5× – 2.0× |
-| Step | 0.1 |
+Sliders are placed in the **Voice Controls Card** (right side), not in the Action Bar.
 
-> **Implementation note**: Only the speed slider is implemented in v0.1.0.
-> Pitch control is supported by the backend API (`generate_tts(rate, pitch)`) but
-> the frontend ActionBar does not include a pitch slider yet (deferred).
+| Property | Speed | Pitch |
+|----------|-------|-------|
+| Range | 0.5× – 2.0× | -50 to +50 Hz |
+| Step | 0.1 | 1 |
+| Default | 1.0× | 0Hz |
+| Display | `{value}×` | `{±value}Hz` |
+| Track height | native range | native range |
+| Label width | 42px, right-aligned | 42px, right-aligned |
+| Value width | 38px, left-aligned | 38px, left-aligned |
 
 ### 3.9 Action Bar
 
 | Property | Value |
 |----------|-------|
-| Height | 60px |
 | Background | `--color-surface` |
-| Border top | 1px solid `--color-border` |
-| Border radius | bottom `--radius-xl` |
-| Padding | `--space-3 --space-5` |
-| Layout | `flex, align-items: center, justify-content: space-between` |
-| Left group | Speed slider (w: 200px) |
-| Right group | [Speak] primary button + [Save As...] secondary button |
-| Gap | `--space-4` between elements |
-
-> **Implementation note**: Format select was omitted — `api.py generate_tts()` has no
-> `format` parameter (output is always MP3). Will be added when backend supports format selection.
+| Border | 1px solid `--color-border` |
+| Border radius | 14px |
+| Padding | `16px 24px` |
+| Layout | `flex`, `gap: 12px` |
+| Buttons | 3 equal-width (`flex: 1`), height 44px |
+| Button 1 | ▶ 試聽 — primary (coral filled, shadow) |
+| Button 2 | ■ 停止 — outline (coral border, transparent bg) |
+| Button 3 | ↓ 另存新檔 — secondary (coral filled, shadow) |
 
 ### 3.10 Settings Modal
 
@@ -511,7 +498,7 @@ Map design tokens to shadcn/ui's CSS variable convention (`--background`, `--for
 | Header Bar | T18 | — |
 | Voice Selector (Language + Voice dropdowns) | T18 | T16 (IPC for voice list) |
 | Text Editor (textarea + char count) | T18 | — |
-| Action Bar (slider + buttons) | T18 | T16 (IPC for TTS) |
+| Action Bar (3 buttons) | T18, T25 | T16 (IPC for TTS) |
 | Settings Modal | T19 | T16 (IPC for config) |
 | Toast System | T18 | — |
 | System Tray | T20 | pystray |
@@ -523,7 +510,7 @@ Map design tokens to shadcn/ui's CSS variable convention (`--background`, `--for
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| 2-column layout (40/60) | ✅ Implemented | T18 |
+| Single column layout | ✅ Implemented | T25 (was 2-col in T18) |
 | Header bar + settings gear | ✅ Implemented | T18, T19 |
 | Voice selection (language + voice) | ✅ Implemented | T18 |
 | Text editor + char count | ✅ Implemented | T18 |
