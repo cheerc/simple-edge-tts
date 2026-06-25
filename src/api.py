@@ -253,6 +253,21 @@ class Api:
         b64 = base64.b64encode(data).decode("ascii")
         return f"data:{mime_type};base64,{b64}"
 
+    def notify_playback_finished(self) -> None:
+        """Called from JS bridge when audio playback ends.
+
+        The JS bridge (audio_player_bridge.js) calls this via
+        window.pywebview.api.notify_playback_finished() when the
+        HTMLAudioElement 'ended' or 'error' event fires.
+
+        Delegates to AudioPlayer.notify_playback_finished() which
+        resets state and dispatches 'audioPlaybackFinished' window
+        event for React to reset the speaking button.
+
+        Ref: #63, #74 — playback completion chain.
+        """
+        self._audio_player.notify_playback_finished()
+
     def check_update(self) -> str:
         """Check GitHub for a newer release.
 
