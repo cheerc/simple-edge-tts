@@ -13,6 +13,7 @@ Ref: T20 — System tray via pystray
 import logging
 import os
 import sys
+import threading
 from pathlib import Path
 
 import webview
@@ -147,14 +148,28 @@ def main():
 
     window.events.loaded += _on_loaded
 
-    # Ref: #77 — Register closing handler to prevent _eval_js deadlock on
-    # X-button close. pywebview fires `closing` from Cocoa's should_close
-    # delegate (locked=True, runs synchronously) BEFORE WebKit cleanup
-    # starts. Calling begin_shutdown() here sets the shutdown flag so
-    # _eval_js short-circuits during window teardown.
-    # Returns None (not False) to allow the close to proceed.
+    # Ref: #77 — Unified close handler: cancel native Cocoa close and run
+    # the same _on_quit() cleanup sequence used by Cmd+Q / tray Quit.
+    # This prevents the hang caused by pywebview's _call threads blocking
+    # on Semaphore.acquire() after NSRunLoop exits (see error3.log analysis).
+    #
+    # Reentrancy guard: window.destroy() inside _on_quit() triggers
+    # windowShouldClose_ → closing.set() again. On the second call,
+    # return None to allow the close to proceed.
+    _closing_in_progress = False
+
     def _on_window_closing():
-        audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock on X-close
+        nonlocal _closing_in_progress
+        if _closing_in_progress:
+            return  # Second call from window.destroy() → allow close
+        _closing_in_progress = True
+        audio_player.begin_shutdown()  # Ref: #77 — set flag before any cleanup
+        # fire-and-forget: cleanup runs on background thread so the main
+        # thread's NSRunLoop stays alive to service AppHelper.callAfter
+        # dispatches (evaluate_js, window.close, tray.stop) until
+        # window.destroy() issues the final close.
+        threading.Thread(target=_on_quit, daemon=True).start()
+        return False  # Cancel native close; _on_quit() will window.destroy()
 
     window.events.closing += _on_window_closing
 
@@ -166,12 +181,13 @@ def main():
 
     webview.start()
 
-    # Ref: #47 — Clean up when webview exits normally (window closed via
-    # title-bar X, not via tray Quit). Ensures event loop thread is joined
-    # and tray is stopped so Python exits cleanly.
-    audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
-    tray.stop()
-    shutdown_event_loop()
+    # Ref: #47 — Fallback cleanup when webview exits without going through
+    # our closing handler (defensive — should not normally happen).
+    # All calls are idempotent so safe to run even if _on_quit() already did them.
+    if not _closing_in_progress:
+        audio_player.begin_shutdown()
+        tray.stop()
+        shutdown_event_loop()
 
 
 if __name__ == "__main__":
