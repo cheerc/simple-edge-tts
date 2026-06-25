@@ -32,6 +32,7 @@ function App() {
   const [speaking, setSpeaking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [outputDir, setOutputDir] = useState("");
 
   // Check for updates on mount (non-blocking, fail-silent)
   useEffect(() => {
@@ -54,6 +55,22 @@ function App() {
 
     checkForUpdate();
     return () => { cancelled = true; };
+  }, [api, api.ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load output directory on mount
+  useEffect(() => {
+    if (!api.ready) return;
+
+    async function loadOutputDir() {
+      try {
+        const result = await api.getOutputDir();
+        if (result.output_dir) setOutputDir(result.output_dir);
+      } catch {
+        // Fail silently — default will be shown
+      }
+    }
+
+    loadOutputDir();
   }, [api, api.ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Convert speed multiplier to API percentage: (multiplier - 1.0) × 100
@@ -110,6 +127,18 @@ function App() {
       setSaving(false);
     }
   }, [text, selectedVoice, speed, pitch, api, addToast, speedToRate]);
+
+  const handleSelectOutputDir = useCallback(async () => {
+    if (!api.ready) return;
+    try {
+      const result = await api.selectOutputDir();
+      if (result.output_dir) {
+        setOutputDir(result.output_dir);
+      }
+    } catch {
+      // Fail silently
+    }
+  }, [api]);
 
   return (
     <div
@@ -173,6 +202,8 @@ function App() {
           saving={saving}
           disabled={!text.trim() || !api.ready}
           t={t}
+          outputDir={outputDir}
+          onSelectOutputDir={handleSelectOutputDir}
         />
       </div>
 

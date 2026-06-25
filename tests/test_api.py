@@ -155,3 +155,56 @@ class TestPlayAudio:
     def test_stop_delegates_to_player(self, api, mock_audio_player):
         api.stop_audio()
         mock_audio_player.stop.assert_called_once()
+
+
+class TestOutputDir:
+    """Test get_output_dir() / select_output_dir() — folder selection IPC."""
+
+    def test_get_output_dir_returns_config_value(self, api, mock_config):
+        mock_config.get.return_value = "/Users/test/Downloads"
+        result = api.get_output_dir()
+        parsed = json.loads(result)
+        assert parsed["output_dir"] == "/Users/test/Downloads"
+        mock_config.get.assert_called_with("output_dir")
+
+    def test_get_output_dir_falls_back_to_desktop(self, api, mock_config):
+        mock_config.get.return_value = None
+        result = api.get_output_dir()
+        parsed = json.loads(result)
+        assert "Desktop" in parsed["output_dir"]
+
+    def test_select_output_dir_no_window_returns_error(self, api):
+        result = api.select_output_dir()
+        parsed = json.loads(result)
+        assert parsed.get("error") is not None
+
+    def test_select_output_dir_persists_selection(self, api, mock_config):
+        mock_window = MagicMock()
+        mock_window.create_file_dialog.return_value = ("/Users/test/Music",)
+        api.set_window(mock_window)
+
+        result = api.select_output_dir()
+        parsed = json.loads(result)
+        assert parsed["output_dir"] == "/Users/test/Music"
+        mock_config.set.assert_called_with("output_dir", "/Users/test/Music")
+        mock_config.save.assert_called()
+
+    def test_select_output_dir_cancel_returns_current(self, api, mock_config):
+        mock_window = MagicMock()
+        mock_window.create_file_dialog.return_value = None
+        api.set_window(mock_window)
+        mock_config.get.return_value = "/Users/test/Desktop"
+
+        result = api.select_output_dir()
+        parsed = json.loads(result)
+        assert parsed["output_dir"] == "/Users/test/Desktop"
+
+
+class TestSetWindow:
+    """Test set_window() — wires PyWebView window to Api."""
+
+    def test_set_window_stores_reference(self, api):
+        mock_window = MagicMock()
+        api.set_window(mock_window)
+        assert api._window is mock_window
+
