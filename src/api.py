@@ -282,7 +282,7 @@ class Api:
             import webview
 
             result = self._window.create_file_dialog(
-                webview.FOLDER_DIALOG  # type: ignore[arg-type]
+                webview.FileDialog.FOLDER  # type: ignore[arg-type]
             )
 
             if result and len(result) > 0:

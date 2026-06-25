@@ -34,7 +34,7 @@ export function Toast({ toasts, onRemove }: ToastProps) {
           key={toast.id}
           className="animate-toast-in cursor-pointer"
           style={{
-            background: "var(--color-text-primary)",
+            background: "var(--color-toast-bg)",
             color: "white",
             fontSize: "13px",
             fontWeight: 500,

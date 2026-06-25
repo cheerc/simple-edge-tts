@@ -51,6 +51,7 @@
     --color-border-focus: #cc4a35;
     --color-success: #16a34a;
     --color-warning: #f59e0b;
+    --color-toast-bg: #333333;
 
     /* Border Radius — §1.4 */
     --radius-sm: 4px;
@@ -167,6 +168,7 @@
     --color-border-focus: #cc4a35;
     --color-success: #22c55e;
     --color-warning: #fbbf24;
+    --color-toast-bg: rgba(15, 23, 42, 0.95);
 
     /* Shadows — darker for dark theme */
     --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
