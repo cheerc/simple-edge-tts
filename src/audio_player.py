@@ -49,6 +49,7 @@ class AudioPlayer:
         self._state = PlayerState.IDLE
         self._window: Optional[object] = None
         self._current_file: Optional[Path] = None
+        self._shutting_down = False
         self.state_changed = SimpleSignal()
         self.playback_finished = SimpleSignal()
         self.on_state_changed: Optional[Callable[[PlayerState], None]] = None
@@ -65,6 +66,15 @@ class AudioPlayer:
     def set_webview_window(self, window: object) -> None:
         """Set the pywebview window for JS bridge communication."""
         self._window = window
+
+    def begin_shutdown(self) -> None:
+        """Signal that the app is shutting down.
+
+        After this call, _eval_js() becomes a no-op to prevent
+        deadlocks from evaluate_js() on a destroying window.
+        Ref: #77 — shutdown hang.
+        """
+        self._shutting_down = True
 
     def play(self, file_path: str) -> None:
         """Play an audio file. Requires file to exist."""
@@ -90,19 +100,16 @@ class AudioPlayer:
     def notify_playback_finished(self) -> None:
         """Called from JS when audio playback ends naturally.
 
-        Dispatches 'audioPlaybackFinished' window event so the React
-        frontend can react to playback completion (e.g. reset speaking
-        state). Ref: #74 — setSpeaking(false) must wait until here.
+        The JS bridge dispatches 'audioPlaybackFinished' window event
+        directly (for React) before calling this method. This method
+        only updates Python-side state — no _eval_js reentry.
+        Ref: #74, #77.
         """
         self._current_file = None
         self._set_state(PlayerState.IDLE)
         self.playback_finished.emit()
         if self.on_playback_finished is not None:
             self.on_playback_finished()
-        # Notify React frontend via window event
-        self._eval_js(
-            "window.dispatchEvent(new Event('audioPlaybackFinished'))"
-        )
 
     def _set_state(self, new_state: PlayerState) -> None:
         self._state = new_state
@@ -111,7 +118,12 @@ class AudioPlayer:
             self.on_state_changed(new_state)
 
     def _eval_js(self, js_code: str) -> None:
-        """Safely evaluate JS in the WebView window."""
+        """Safely evaluate JS in the WebView window.
+
+        No-op when shutting down to prevent deadlocks (#77).
+        """
+        if self._shutting_down:
+            return
         if self._window is not None:
             try:
                 self._window.evaluate_js(js_code)  # type: ignore[union-attr]
