@@ -2,11 +2,12 @@
 set -euo pipefail
 
 # deploy.sh — PyInstaller packaging script for simple-edge-tts
-# Usage: ./deploy.sh [build|clean]
+# Usage: ./deploy.sh [build|clean|build-exe|get-exe]
 
 APP_NAME="simple-edge-tts"
 ENTRY_POINT="src/main.py"
 RESOURCES_DIR="src/resources"
+REPO="cheerc/simple-edge-tts"
 
 # Color output if tty
 if [ -t 1 ]; then
@@ -151,6 +152,71 @@ do_build() {
 
 CMD="${1:-build}"
 
+# Ref: #85 — Ensure gh CLI is installed and authenticated before CI commands.
+check_gh() {
+    if ! command -v gh &>/dev/null; then
+        fail "GitHub CLI (gh) is not installed. Install from https://cli.github.com"
+    fi
+    if ! gh auth status &>/dev/null 2>&1; then
+        fail "GitHub CLI is not authenticated. Run 'gh auth login' first"
+    fi
+}
+
+do_build_exe() {
+    check_gh
+
+    info "Triggering CI build via workflow_dispatch..."
+    if ! gh workflow run release.yml --repo "$REPO"; then
+        fail "Failed to trigger workflow. Check your permissions and repo access"
+    fi
+    pass "Workflow triggered"
+
+    # Wait a moment for the run to register
+    sleep 3
+
+    info "Waiting for CI build to complete..."
+    # Find the most recent workflow_dispatch run
+    local run_id
+    run_id=$(gh run list --repo "$REPO" --workflow=release.yml --event=workflow_dispatch --limit=1 --json databaseId --jq '.[0].databaseId')
+    if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+        fail "Could not find the triggered workflow run"
+    fi
+
+    echo "  Run ID: ${run_id}"
+    echo "  URL: https://github.com/${REPO}/actions/runs/${run_id}"
+
+    if gh run watch "$run_id" --repo "$REPO" --exit-status; then
+        pass "CI build completed successfully (run ${run_id})"
+    else
+        fail "CI build failed (run ${run_id}). Check: https://github.com/${REPO}/actions/runs/${run_id}"
+    fi
+}
+
+do_get_exe() {
+    check_gh
+
+    info "Finding latest successful workflow_dispatch build..."
+    local run_id
+    run_id=$(gh run list --repo "$REPO" --workflow=release.yml --event=workflow_dispatch --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
+    if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+        fail "No successful workflow_dispatch runs found. Run './deploy.sh build-exe' first"
+    fi
+
+    echo "  Run ID: ${run_id}"
+
+    info "Downloading Windows artifact..."
+    mkdir -p dist
+    if gh run download "$run_id" --repo "$REPO" -n "${APP_NAME}-Windows" --dir dist/; then
+        pass "Windows artifact downloaded to dist/"
+        # List downloaded files
+        find dist/ -type f -name "*.zip" -o -name "*.exe" | while read -r f; do
+            echo "  → $f"
+        done
+    else
+        fail "Failed to download Windows artifact from run ${run_id}"
+    fi
+}
+
 case "$CMD" in
     build)
         do_build
@@ -158,8 +224,14 @@ case "$CMD" in
     clean)
         do_clean
         ;;
+    build-exe)
+        do_build_exe
+        ;;
+    get-exe)
+        do_get_exe
+        ;;
     *)
-        echo "Usage: $0 [build|clean]"
+        echo "Usage: $0 [build|clean|build-exe|get-exe]"
         exit 1
         ;;
 esac
