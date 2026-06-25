@@ -66,6 +66,11 @@ do_build() {
     local sep
     sep=$(get_path_sep)
 
+    # Build frontend assets
+    info "Building frontend..."
+    (cd frontend && npm run build) || fail "Frontend build"
+    pass "Frontend build"
+
     # Clean previous build
     info "Cleaning previous build..."
     rm -rf build/ dist/
@@ -78,7 +83,9 @@ do_build() {
         --windowed
         --onedir
         --add-data "${RESOURCES_DIR}${sep}${RESOURCES_DIR}"
-        --hidden-import PySide6
+        --add-data "frontend/dist${sep}frontend/dist"
+        --hidden-import pystray
+        --hidden-import PIL
         --hidden-import edge_tts
         --noconfirm
         "$ENTRY_POINT"
