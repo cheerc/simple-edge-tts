@@ -20,7 +20,7 @@ from src.audio_player import AudioPlayer
 from src.config_manager import ConfigManager
 from src.i18n import I18n
 from src.tts_engine import TTSEngine
-from src.ui.system_tray import SystemTrayManager
+from src.system_tray import SystemTrayManager
 
 TRANSLATIONS_DIR = Path(__file__).parent / "resources" / "translations"
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist" / "index.html"
