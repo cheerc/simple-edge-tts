@@ -90,6 +90,8 @@ cd frontend && npm ci && npm run build
 cd ..
 ```
 
+> **Note**: After making changes to the frontend, rebuild the production bundle with `cd frontend && npm run build`. The output in `frontend/dist/` is gitignored and must be rebuilt locally for production mode.
+
 ### 測試
 
 ```bash

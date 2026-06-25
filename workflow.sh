@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # workflow.sh — Local test runner for simple-edge-tts
-# Usage: ./workflow.sh [all|test|lint|typecheck|t1|t2|t3]
+# Usage: ./workflow.sh [all|test|lint|typecheck|frontend|t1|t2|t3|t4]
 
 # Color output if tty
 if [ -t 1 ]; then
@@ -50,6 +50,10 @@ step_test() {
     run_step "t3: test (pytest)" uv run pytest tests/ -v
 }
 
+step_frontend_build() {
+    run_step "t4: frontend build" bash -c "cd frontend && npm run build"
+}
+
 CMD="${1:-all}"
 
 case "$CMD" in
@@ -57,6 +61,7 @@ case "$CMD" in
         step_lint
         step_typecheck
         step_test
+        step_frontend_build
         ;;
     lint|t1)
         step_lint
@@ -67,8 +72,11 @@ case "$CMD" in
     test|t3)
         step_test
         ;;
+    frontend|t4)
+        step_frontend_build
+        ;;
     *)
-        echo "Usage: $0 [all|test|lint|typecheck|t1|t2|t3]"
+        echo "Usage: $0 [all|test|lint|typecheck|frontend|t1|t2|t3|t4]"
         exit 1
         ;;
 esac
