@@ -11,8 +11,10 @@ Ref: T16 — PyWebView entry point + IPC bridge
 Ref: T28 — Use persistent event loop via run_async()
 """
 
+import base64
 import json
 import logging
+import mimetypes
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -227,10 +229,12 @@ class Api:
             return json.dumps({"success": False, "error": str(e)})
 
     def get_audio_url(self, file_path: str) -> str:
-        """Convert a local file path to a URL playable by the WebView.
+        """Convert a local file path to a playable data URL.
 
-        Called by audio_player_bridge.js filePathToUrl() to resolve
-        absolute file paths to proper file:// URLs.
+        WebKit blocks file:// media from HTTP origins (pywebview serves
+        pages via localhost HTTP server). Base64 data URLs bypass this
+        restriction. TTS preview files are typically <500KB so overhead
+        is acceptable.
 
         Ref: #63 — audio bridge needs URL resolution for HTMLAudioElement.
 
@@ -238,9 +242,16 @@ class Api:
             file_path: Absolute path to the audio file.
 
         Returns:
-            A file:// URL string (not JSON-wrapped — bridge expects raw URL).
+            A data:audio/...;base64,... URL string, or empty string if
+            file does not exist.
         """
-        return Path(file_path).resolve().as_uri()
+        path = Path(file_path).resolve()
+        if not path.exists():
+            return ""
+        mime_type = mimetypes.guess_type(str(path))[0] or "audio/mpeg"
+        data = path.read_bytes()
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"data:{mime_type};base64,{b64}"
 
     def check_update(self) -> str:
         """Check GitHub for a newer release.

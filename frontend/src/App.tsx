@@ -91,7 +91,6 @@ function App() {
         addToast(result.error, "error");
       } else if (result.path) {
         await api.playAudio(result.path);
-        addToast(t("status_playing"), "success");
       }
     } catch (err) {
       addToast(err instanceof Error ? err.message : "TTS generation failed", "error");

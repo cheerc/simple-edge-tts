@@ -6,9 +6,12 @@ that tracks state and communicates with JS via window.evaluate_js().
 """
 
 import json
+import logging
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class PlayerState(Enum):
@@ -104,4 +107,4 @@ class AudioPlayer:
             try:
                 self._window.evaluate_js(js_code)  # type: ignore[union-attr]
             except Exception:
-                pass
+                logger.warning("evaluate_js failed", exc_info=True)

@@ -10,6 +10,7 @@ Ref: T16 — PyWebView entry point + IPC bridge
 Ref: T20 — System tray via pystray
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -138,7 +139,10 @@ def main():
             bridge_js = _bridge_js_path.read_text(encoding="utf-8")
             window.evaluate_js(bridge_js)
         except Exception:
-            pass  # Non-fatal: audio preview won't work but app still functions
+            logging.getLogger(__name__).warning(
+                "Failed to inject audio bridge JS from %s", _bridge_js_path,
+                exc_info=True,
+            )
 
     window.events.loaded += _on_loaded
 

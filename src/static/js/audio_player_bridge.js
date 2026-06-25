@@ -67,17 +67,6 @@
   function getAudioElement() {
     if (!audioElement) {
       audioElement = new Audio();
-
-      audioElement.addEventListener("ended", function () {
-        currentSrc = null;
-        notifyPythonFinished();
-      });
-
-      audioElement.addEventListener("error", function (e) {
-        console.error("Audio playback error:", e);
-        currentSrc = null;
-        notifyPythonFinished();
-      });
     }
     return audioElement;
   }
@@ -108,16 +97,32 @@
       audio.currentTime = 0;
     }
 
-    try {
-      var url = await filePathToUrl(filePath);
-      currentSrc = filePath;
-      audio.src = url;
-      await audio.play();
-    } catch (err) {
-      console.error("Failed to play audio:", err);
-      currentSrc = null;
-      notifyPythonFinished();
-    }
+    var url = await filePathToUrl(filePath);
+    currentSrc = filePath;
+    audio.src = url;
+
+    // Return a Promise that resolves when playback ends.
+    // This lets Python's evaluate_js() (and thus the React frontend)
+    // wait until audio finishes before setting speaking=false.
+    // Ref: #63, #74 — proper playback lifecycle.
+    return new Promise(function (resolve, reject) {
+      audio.onended = function () {
+        currentSrc = null;
+        notifyPythonFinished();
+        resolve();
+      };
+      audio.onerror = function (e) {
+        console.error("Audio playback error:", e);
+        currentSrc = null;
+        notifyPythonFinished();
+        reject(e);
+      };
+      audio.play().catch(function (err) {
+        currentSrc = null;
+        notifyPythonFinished();
+        reject(err);
+      });
+    });
   }
 
   /**
