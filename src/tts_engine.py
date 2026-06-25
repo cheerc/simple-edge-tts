@@ -6,6 +6,7 @@ in PyWebView's threading model.
 
 import asyncio
 import re
+from concurrent.futures import ThreadPoolExecutor
 import threading
 from collections import OrderedDict
 from datetime import datetime
@@ -27,11 +28,19 @@ _lock = threading.Lock()
 
 
 def _get_loop() -> asyncio.AbstractEventLoop:
-    """Return the persistent event loop, creating it on first call."""
+    """Return the persistent event loop, creating it on first call.
+
+    Sets a custom ThreadPoolExecutor so that Python's atexit handler
+    (which shuts down the *default* executor) does not break DNS
+    resolution in aiohttp/edge-tts while the loop is still alive.
+    Ref: #43 — aiohttp DNS resolve depends on ThreadPoolExecutor.
+    """
     global _loop, _thread
     with _lock:
         if _loop is None or _loop.is_closed():
             _loop = asyncio.new_event_loop()
+            # Ref: #43 — Use a self-managed executor so atexit doesn't kill it
+            _loop.set_default_executor(ThreadPoolExecutor(max_workers=4))
             _thread = threading.Thread(
                 target=_loop.run_forever, daemon=True, name="async-event-loop"
             )
@@ -83,7 +92,29 @@ def make_output_filename(text: str) -> str:
 class TTSEngine:
     """Synchronous-facing wrapper around async edge-tts."""
 
+    def __init__(self) -> None:
+        self._voices_cache: list[Any] | None = None
+
+    def prefetch_voices(self) -> None:
+        """Pre-fetch voice list and store in cache.
+
+        Call before webview.start() blocks the main thread, while the
+        default ThreadPoolExecutor is still alive.  If the fetch fails
+        (e.g. network error), the cache stays None and get_voices_sync()
+        will fall back to an online fetch.
+        Ref: #43 — pre-fetch voices before executor shutdown.
+        """
+        try:
+            self._voices_cache = run_async(edge_tts.list_voices())
+        except Exception:
+            # Network error — leave cache as None; get_voices_sync()
+            # will fall back to fetching online.
+            pass
+
     def get_voices_sync(self) -> list[Any]:
+        # Ref: #43 — return cached voices if available (pre-fetched)
+        if self._voices_cache is not None:
+            return self._voices_cache
         return run_async(edge_tts.list_voices())
 
     def get_grouped_voices_sync(self) -> OrderedDict[str, list[dict]]:

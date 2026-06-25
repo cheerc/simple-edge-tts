@@ -84,6 +84,13 @@ def main():
     # and its `func` callback runs in a worker thread, so tray.start() must
     # come first. pystray runs its own event loop in a background thread.
     tray.start()
+
+    # Ref: #43 — Pre-fetch voice list while the default executor is still
+    # alive. After webview.start() blocks the main thread, Python's atexit
+    # may shut down the default executor, breaking aiohttp DNS resolution.
+    # Cached voices will be served by TTSEngine.get_voices_sync().
+    tts_engine.prefetch_voices()
+
     webview.start()
 
 
