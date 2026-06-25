@@ -48,10 +48,23 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
+          # On Windows, find and force-include vcruntime140.dll for portability
+          # (PyInstaller excludes it by default, assuming system-installed)
+          VCRT_FLAG=""
+          if [ "${{ matrix.platform }}" = "Windows" ]; then
+            PYTHON_DIR=$(dirname "$(which python)")
+            for dll in vcruntime140.dll vcruntime140_1.dll; do
+              if [ -f "$PYTHON_DIR/$dll" ]; then
+                VCRT_FLAG="$VCRT_FLAG --add-binary $PYTHON_DIR/$dll${{ matrix.sep }}."
+              fi
+            done
+            echo "VC Runtime flags: $VCRT_FLAG"
+          fi
           uv run pyinstaller \
             --name simple-edge-tts \
             --windowed \
             --onedir \
+            --noupx \
             --add-data "src/resources${{ matrix.sep }}src/resources" \
             --add-data "src/static${{ matrix.sep }}src/static" \
             --add-data "frontend/dist${{ matrix.sep }}frontend/dist" \
@@ -59,6 +72,7 @@ jobs:
             --hidden-import PIL \
             --hidden-import edge_tts \
             --noconfirm \
+            $VCRT_FLAG \
             src/main.py
         shell: bash
 
