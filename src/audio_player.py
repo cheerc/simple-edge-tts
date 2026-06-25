@@ -3,26 +3,12 @@
 State machine: idle ↔ playing. Actual playback is handled by the browser's
 HTMLAudioElement in the WebView frontend; this Python module is a thin bridge
 that tracks state and communicates with JS via window.evaluate_js().
-
-Transitional compatibility: When PySide6 is available, AudioPlayer inherits
-from QObject and uses Qt Signals so existing UI code (main_window.py) works
-unchanged. When PySide6 is not available, falls back to plain Python class
-with SimpleSignal. This dual-mode support will be removed in T18 when the
-PySide6 UI is replaced.
 """
 
 import json
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Callable, Optional
-
-# Transitional: use Qt base class + signals when PySide6 is available
-try:
-    from PySide6.QtCore import QObject, Signal as QtSignal
-
-    _HAS_QT = True
-except ImportError:
-    _HAS_QT = False
 
 
 class PlayerState(Enum):
@@ -31,11 +17,7 @@ class PlayerState(Enum):
 
 
 class SimpleSignal:
-    """Minimal signal implementation compatible with Qt Signal.connect() API.
-
-    Used only when PySide6 is not available. Provides .connect(callback)
-    and .emit(*args) so code using PySide6 Signal pattern still works.
-    """
+    """Minimal signal implementation with .connect(callback) and .emit(*args)."""
 
     def __init__(self) -> None:
         self._callbacks: list[Callable[..., Any]] = []
@@ -57,8 +39,25 @@ class SimpleSignal:
             callback(*args)
 
 
-def _make_player_methods():
-    """Shared method implementations for both Qt and non-Qt AudioPlayer."""
+class AudioPlayer:
+    """Play/stop audio files via HTML5 <audio> in WebView."""
+
+    def __init__(self, parent: object = None) -> None:
+        self._state = PlayerState.IDLE
+        self._window: Optional[object] = None
+        self._current_file: Optional[Path] = None
+        self.state_changed = SimpleSignal()
+        self.playback_finished = SimpleSignal()
+        self.on_state_changed: Optional[Callable[[PlayerState], None]] = None
+        self.on_playback_finished: Optional[Callable[[], None]] = None
+
+    @property
+    def state(self) -> PlayerState:
+        return self._state
+
+    @property
+    def current_file(self) -> Optional[Path]:
+        return self._current_file
 
     def set_webview_window(self, window: object) -> None:
         """Set the pywebview window for JS bridge communication."""
@@ -106,75 +105,3 @@ def _make_player_methods():
                 self._window.evaluate_js(js_code)  # type: ignore[union-attr]
             except Exception:
                 pass
-
-    return {
-        "set_webview_window": set_webview_window,
-        "play": play,
-        "stop": stop,
-        "notify_playback_finished": notify_playback_finished,
-        "_set_state": _set_state,
-        "_eval_js": _eval_js,
-    }
-
-
-_methods = _make_player_methods()
-
-if _HAS_QT:
-
-    class AudioPlayer(QObject):  # type: ignore[no-redef]
-        """Play/stop audio files via HTML5 <audio> in WebView (Qt mode)."""
-
-        state_changed = QtSignal(PlayerState)
-        playback_finished = QtSignal()
-
-        def __init__(self, parent=None) -> None:
-            super().__init__(parent)
-            self._state = PlayerState.IDLE
-            self._window: Optional[object] = None
-            self._current_file: Optional[Path] = None
-            self.on_state_changed: Optional[Callable[[PlayerState], None]] = None
-            self.on_playback_finished: Optional[Callable[[], None]] = None
-
-        @property
-        def state(self) -> PlayerState:
-            return self._state
-
-        @property
-        def current_file(self) -> Optional[Path]:
-            return self._current_file
-
-        set_webview_window = _methods["set_webview_window"]
-        play = _methods["play"]
-        stop = _methods["stop"]
-        notify_playback_finished = _methods["notify_playback_finished"]
-        _set_state = _methods["_set_state"]
-        _eval_js = _methods["_eval_js"]
-
-else:
-
-    class AudioPlayer:  # type: ignore[no-redef]
-        """Play/stop audio files via HTML5 <audio> in WebView (non-Qt mode)."""
-
-        def __init__(self, parent: object = None) -> None:
-            self._state = PlayerState.IDLE
-            self._window: Optional[object] = None
-            self._current_file: Optional[Path] = None
-            self.state_changed = SimpleSignal()
-            self.playback_finished = SimpleSignal()
-            self.on_state_changed: Optional[Callable[[PlayerState], None]] = None
-            self.on_playback_finished: Optional[Callable[[], None]] = None
-
-        @property
-        def state(self) -> PlayerState:
-            return self._state
-
-        @property
-        def current_file(self) -> Optional[Path]:
-            return self._current_file
-
-        set_webview_window = _methods["set_webview_window"]
-        play = _methods["play"]
-        stop = _methods["stop"]
-        notify_playback_finished = _methods["notify_playback_finished"]
-        _set_state = _methods["_set_state"]
-        _eval_js = _methods["_eval_js"]
