@@ -70,6 +70,43 @@ jobs:
             done
             echo "VC Runtime flags: $VCRT_FLAG"
           fi
+
+          # Ref: #90 — Windows version metadata via --version-file (VSVersionInfo).
+          VERSION_FILE_FLAG=""
+          if [ "${{ matrix.platform }}" = "Windows" ]; then
+            VERSION="${{ steps.version.outputs.VERSION }}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            python3 -c "
+print('''# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=($MAJOR, $MINOR, $PATCH, 0),
+    prodvers=($MAJOR, $MINOR, $PATCH, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([StringTable(\"040904B0\", [
+      StringStruct(\"FileDescription\", \"Simple Edge TTS\"),
+      StringStruct(\"FileVersion\", \"${VERSION}.0\"),
+      StringStruct(\"InternalName\", \"simple-edge-tts\"),
+      StringStruct(\"OriginalFilename\", \"simple-edge-tts.exe\"),
+      StringStruct(\"ProductName\", \"Simple Edge TTS\"),
+      StringStruct(\"ProductVersion\", \"${VERSION}.0\"),
+    ])]),
+    VarFileInfo([VarStruct(\"Translation\", [0x0409, 1200])])
+  ]
+)
+''')
+" > version_info.txt
+            VERSION_FILE_FLAG="--version-file version_info.txt"
+            echo "Generated version_info.txt (v$VERSION)"
+          fi
+
           uv run pyinstaller \
             --name simple-edge-tts \
             --windowed \
@@ -83,11 +120,9 @@ jobs:
             --hidden-import edge_tts \
             --noconfirm \
             $VCRT_FLAG \
-            $VERSION_FLAG \
+            $VERSION_FILE_FLAG \
             src/main.py
         shell: bash
-        env:
-          VERSION_FLAG: ${{ matrix.platform == 'Windows' && format('--file-version {0}.0 --product-version {0}.0', steps.version.outputs.VERSION) || '' }}
 
       # Ref: #90 — Patch Info.plist with correct version before packaging .dmg.
       - name: Patch Info.plist version (macOS)
