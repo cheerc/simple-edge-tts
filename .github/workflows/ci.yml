@@ -30,6 +30,27 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check src/ tests/
 
+      # Ref: #94 — Validate all workflow YAML files parse before they ever
+      # trigger.  release.yml only runs on v* tags so YAML errors in it are
+      # invisible to per-PR CI; this catches them at PR time.
+      - name: Validate workflow YAML
+        run: |
+          uv run python3 -c "
+          import yaml, glob, sys
+          errors = []
+          for f in sorted(glob.glob('.github/workflows/*.yml')):
+              try:
+                  yaml.safe_load(open(f))
+                  print(f'  ✅ {f}')
+              except yaml.YAMLError as e:
+                  errors.append(f)
+                  print(f'  ❌ {f}: {e}')
+          if errors:
+              print(f'\n❌ {len(errors)} workflow file(s) have YAML errors')
+              sys.exit(1)
+          print(f'\n✅ All workflow YAML files valid')
+          "
+
       # PySide6 still in transitional deps (used by existing UI tests via pytest-qt).
       # Qt system libs required until PySide6 is fully removed (post-T20).
       - name: Install Qt dependencies
