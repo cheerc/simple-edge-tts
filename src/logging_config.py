@@ -34,14 +34,16 @@ def _get_log_dir() -> Path:
     """Return the platform-appropriate log directory.
 
     macOS:    ~/Library/Logs/simple-edge-tts/
-    Windows:  %LOCALAPPDATA%/simple-edge-tts/logs/
-              (falls back to %APPDATA% if LOCALAPPDATA is absent)
+    Windows:  If running a frozen build, returns the folder containing the executable (.exe).
+              Otherwise, falls back to %LOCALAPPDATA%/simple-edge-tts/logs/
     Linux:    ~/.local/share/simple-edge-tts/logs/
     """
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Logs" / "simple-edge-tts"
 
     if sys.platform == "win32":
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).parent
         base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA", "")
         if not base:
             # Ultimate fallback — should be rare
