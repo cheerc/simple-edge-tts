@@ -26,6 +26,8 @@
   "settings": "Settings",
   "settings_title": "Settings",
   "language": "Language",
+  "enable_logging": "Enable File Logging",
+  "enable_logging_desc": "Save logs to disk for diagnostic purposes",
   "save": "Save",
   "cancel": "Cancel",
   "show_main": "Show Main Window",

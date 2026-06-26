@@ -12,6 +12,7 @@ DEFAULTS = {
     "pitch": "+0Hz",
     "output_dir": str(Path.home() / "Desktop"),
     "window_geometry": {"x": 100, "y": 100, "w": 900, "h": 600},
+    "enable_file_logging": False,
 }
 
 
@@ -20,7 +21,8 @@ class ConfigManager:
 
     def __init__(self, config_dir: Path | None = None):
         if config_dir is None:
-            config_dir = Path.home() / ".simple-edge-tts"
+            from src.logging_config import _get_log_dir
+            config_dir = _get_log_dir()
         self._config_dir = Path(config_dir)
         self._config_file = self._config_dir / "config.json"
         self._data: dict[str, Any] = dict(DEFAULTS)
