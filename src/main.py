@@ -21,9 +21,11 @@ from src.api import Api
 from src.audio_player import AudioPlayer
 from src.config_manager import ConfigManager
 from src.i18n import I18n
-from src.logging_config import setup_logging
+from src.logging_config import setup_logging, start_diagnostic_monitor
 from src.tts_engine import TTSEngine, shutdown_event_loop, _ensure_selector_policy
 from src.system_tray import SystemTrayManager
+
+logger = logging.getLogger(__name__)
 
 VITE_DEV_URL = "http://localhost:5173"
 
@@ -89,6 +91,8 @@ def main():
     # Must be called before anything else so all subsequent logger output
     # is captured to disk (vital for PyInstaller-frozen builds).
     setup_logging()
+    start_diagnostic_monitor(interval_seconds=5.0)
+    logger.info("Application starting - base_dir=%s, dev_mode=%s", _get_base_dir(), _is_dev_mode())
 
     # Ref: #95 — Must be called on the main thread before any event loop
     # is created. On Windows this switches the global asyncio policy from
@@ -103,6 +107,7 @@ def main():
     api = Api(tts_engine, config, audio_player, i18n)
 
     url = _get_frontend_url()
+    logger.info("Loading frontend URL: %s", url)
 
     # Ref: #73 — Set background_color to dark theme bg (#1a1a2e) to prevent
     # white flash on startup. The app defaults to dark mode (system pref or
@@ -129,6 +134,7 @@ def main():
     # Ref: #47 — Quit handler must stop tray + event loop before
     # destroying the window, otherwise daemon threads hang at shutdown.
     def _on_quit():
+        logger.info("Quit handler invoked from tray")
         audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
         tray.stop()
         shutdown_event_loop()
@@ -152,11 +158,13 @@ def main():
     _bridge_js_path = _get_base_dir() / "src" / "static" / "js" / "audio_player_bridge.js"
 
     def _on_loaded():
+        logger.info("WebView loaded event triggered")
         try:
             bridge_js = _bridge_js_path.read_text(encoding="utf-8")
             window.evaluate_js(bridge_js)
+            logger.info("Audio player bridge JS successfully injected")
         except Exception:
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Failed to inject audio bridge JS from %s", _bridge_js_path,
                 exc_info=True,
             )
@@ -171,6 +179,7 @@ def main():
     # semaphore never releases → hang. Making evaluate_js a no-op
     # during shutdown lets those threads complete harmlessly.
     def _on_window_closing():
+        logger.info("WebView window closing event triggered")
         audio_player.begin_shutdown()  # Ref: #77 — set shutdown flag
         original = getattr(window, '_original_evaluate_js', None)
         if original is None:  # Only patch once
@@ -189,15 +198,18 @@ def main():
     # are fetched in the background. prefetch_voices() uses the persistent
     # event loop (Ref: #43) which has its own ThreadPoolExecutor, so it's
     # safe to call after the main thread enters webview.start().
+    logger.info("Calling webview.start() event loop")
     webview.start(func=tts_engine.prefetch_voices)
 
     # Ref: #47 — Clean up when webview exits normally (window closed via
     # title-bar X, not via tray Quit). Ensures event loop thread is joined
     # and tray is stopped so Python exits cleanly.
     # All calls are idempotent so safe to run even if _on_quit() already did them.
+    logger.info("webview.start() finished. Starting normal exit cleanup...")
     audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
     tray.stop()
     shutdown_event_loop()
+    logger.info("Normal exit cleanup complete. Exiting process.")
     os._exit(0)  # Ref: #77 — force-exit to prevent hang from pywebview
                  # _call threads stuck on Semaphore.acquire() during
                  # Python finalization (Py_FinalizeEx thread join)

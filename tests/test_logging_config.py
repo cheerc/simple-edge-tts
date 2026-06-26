@@ -160,7 +160,7 @@ class TestSetupLogging:
         assert "%(message)s" in fmt
 
     def test_log_level_is_set(self, tmp_path, clean_logging_after):
-        """setup_logging() sets the log level on the root logger."""
+        """setup_logging() sets the log level on the root logger to DEBUG."""
         from src.logging_config import setup_logging
         log_dir = tmp_path / "logs"
         log_dir.mkdir(parents=True)
@@ -171,7 +171,7 @@ class TestSetupLogging:
                     setup_logging()
 
         root = logging.getLogger()
-        assert root.level == logging.INFO
+        assert root.level == logging.DEBUG
 
     def test_prints_log_path_to_stderr(self, tmp_path, clean_logging_after):
         """setup_logging() prints the log file path to stderr."""

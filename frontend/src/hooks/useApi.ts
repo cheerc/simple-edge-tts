@@ -7,7 +7,7 @@
  * Ref: T18 Plan §3 — IPC Hook
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import type { Voice, TTSResult, ConfigValue, ConfigSetResult, TranslationData, AudioResult, UpdateInfo, OutputDirResult } from "../types";
 
 /** Hook return type. */
@@ -119,5 +119,34 @@ export function useApi(): UseApiReturn {
     return JSON.parse(result) as OutputDirResult;
   }, [getApi]);
 
-  return { ready, getVoices, generateTTS, previewTTS, getConfig, setConfig, getTranslations, playAudio, stopAudio, checkUpdate, getOutputDir, selectOutputDir };
+  return useMemo(
+    () => ({
+      ready,
+      getVoices,
+      generateTTS,
+      previewTTS,
+      getConfig,
+      setConfig,
+      getTranslations,
+      playAudio,
+      stopAudio,
+      checkUpdate,
+      getOutputDir,
+      selectOutputDir,
+    }),
+    [
+      ready,
+      getVoices,
+      generateTTS,
+      previewTTS,
+      getConfig,
+      setConfig,
+      getTranslations,
+      playAudio,
+      stopAudio,
+      checkUpdate,
+      getOutputDir,
+      selectOutputDir,
+    ]
+  );
 }
