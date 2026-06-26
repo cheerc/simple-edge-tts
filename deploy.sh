@@ -262,6 +262,8 @@ do_get_exe() {
 
     info "Downloading Windows artifact..."
     mkdir -p dist
+    # Ref: #104 — Clean up existing download target files to prevent extraction failure
+    rm -f dist/simple-edge-tts-windows.zip
     if gh run download "$run_id" --repo "$REPO" -n "${APP_NAME}-Windows" --dir dist/; then
         pass "Windows artifact downloaded to dist/"
         # List downloaded files
