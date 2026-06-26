@@ -25,10 +25,14 @@ def clean_logging_after():
     logger.handlers.clear()
     logger.setLevel(logging.NOTSET)
     logger.propagate = True
-    # Remove any root handlers added by setup_logging
+    # Remove all handlers added by setup_logging — both FileHandlers and
+    # StreamHandlers — so tests don't accumulate handlers across the run.
     root = logging.getLogger()
-    root.handlers = [h for h in root.handlers
-                     if not isinstance(h, logging.FileHandler)]
+    root.handlers.clear()
+    root.setLevel(logging.NOTSET)
+    # Reset idempotency flag so tests don't interfere with each other
+    import src.logging_config
+    src.logging_config._setup_done = False
 
 
 # ---------------------------------------------------------------------------
@@ -69,15 +73,32 @@ class TestGetLogDir:
         expected = fake_appdata / "simple-edge-tts" / "logs"
         assert result == expected
 
-    def test_windows_frozen_log_dir(self):
-        """On Windows when frozen, log dir is the directory of the executable."""
+    def test_windows_frozen_writable_log_dir(self):
+        """On Windows when frozen and the directory is writable, log dir is the directory of the executable."""
         from src.logging_config import _get_log_dir
         fake_exe = "D:/Program Files/simple-edge-tts/simple-edge-tts.exe"
         with patch.object(sys, "platform", "win32"):
             with patch.object(sys, "frozen", True, create=True):
                 with patch.object(sys, "executable", fake_exe):
-                    result = _get_log_dir()
+                    with patch("pathlib.Path.touch") as mock_touch, patch("pathlib.Path.unlink") as mock_unlink:
+                        result = _get_log_dir()
+                        mock_touch.assert_called_once()
+                        mock_unlink.assert_called_once()
         expected = Path("D:/Program Files/simple-edge-tts")
+        assert result == expected
+
+    def test_windows_frozen_readonly_fallback(self):
+        """On Windows when frozen but the directory is not writable, log dir falls back to LOCALAPPDATA."""
+        from src.logging_config import _get_log_dir
+        fake_exe = "D:/Program Files/simple-edge-tts/simple-edge-tts.exe"
+        fake_localappdata = Path(r"C:\Users\test\AppData\Local")
+        with patch.object(sys, "platform", "win32"):
+            with patch.object(sys, "frozen", True, create=True):
+                with patch.object(sys, "executable", fake_exe):
+                    with patch.dict("os.environ", {"LOCALAPPDATA": str(fake_localappdata)}):
+                        with patch("pathlib.Path.touch", side_effect=PermissionError()):
+                            result = _get_log_dir()
+        expected = fake_localappdata / "simple-edge-tts" / "logs"
         assert result == expected
 
     def test_linux_log_dir(self):
@@ -123,7 +144,7 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=True)
 
         assert log_dir.exists()
         assert log_dir.is_dir()
@@ -136,7 +157,7 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=True)
 
         # Verify a FileHandler was added to the root logger
         root = logging.getLogger()
@@ -159,7 +180,7 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=True)
 
         root = logging.getLogger()
         file_handlers = [h for h in root.handlers
@@ -181,7 +202,7 @@ class TestSetupLogging:
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
                 with patch("src.logging_config._get_log_level", return_value=logging.INFO):
-                    setup_logging()
+                    setup_logging(enable_file_logging=True)
 
         root = logging.getLogger()
         assert root.level == logging.DEBUG
@@ -196,7 +217,7 @@ class TestSetupLogging:
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
                 with patch("sys.stderr", mock_stderr):
-                    setup_logging()
+                    setup_logging(enable_file_logging=True)
 
         # Verify stderr.write was called at least once with the log path
         stderr_calls = "".join(
@@ -213,7 +234,7 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=True)
 
         root = logging.getLogger()
         file_handlers = [h for h in root.handlers
@@ -233,8 +254,8 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
-                setup_logging()
+                setup_logging(enable_file_logging=True)
+                setup_logging(enable_file_logging=True)
 
         root = logging.getLogger()
         file_handlers = [h for h in root.handlers
@@ -249,10 +270,71 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=False)
 
         root = logging.getLogger()
         stream_handlers = [h for h in root.handlers
                            if isinstance(h, logging.StreamHandler)
                            and not isinstance(h, logging.handlers.RotatingFileHandler)]
         assert len(stream_handlers) >= 1
+
+    def test_no_file_handler_when_disabled(self, tmp_path, clean_logging_after):
+        """setup_logging(enable_file_logging=False) does not add a RotatingFileHandler."""
+        from src.logging_config import setup_logging
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True)
+
+        with patch("src.logging_config._get_log_dir", return_value=log_dir):
+            with patch("src.logging_config.logging_config_logger"):
+                setup_logging(enable_file_logging=False)
+
+        root = logging.getLogger()
+        file_handlers = [h for h in root.handlers
+                         if isinstance(h, logging.handlers.RotatingFileHandler)]
+        assert len(file_handlers) == 0
+
+    def test_setup_logging_idempotent_when_file_logging_disabled(
+        self, tmp_path, clean_logging_after
+    ):
+        """Calling setup_logging(enable_file_logging=False) twice must not add
+        duplicate StreamHandlers — only one console handler should exist."""
+        from src.logging_config import setup_logging
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True)
+
+        with patch("src.logging_config._get_log_dir", return_value=log_dir):
+            with patch("src.logging_config.logging_config_logger"):
+                setup_logging(enable_file_logging=False)
+                setup_logging(enable_file_logging=False)
+
+        root = logging.getLogger()
+        # Use strict type() check to exclude pytest's LogCaptureHandler
+        # (a StreamHandler subclass) and RotatingFileHandler.
+        stream_handlers = [h for h in root.handlers
+                           if type(h) is logging.StreamHandler]
+        assert len(stream_handlers) == 1, (
+            f"Expected 1 StreamHandler, got {len(stream_handlers)}: "
+            f"{[type(h).__name__ for h in root.handlers]}"
+        )
+
+    def test_setup_logging_reads_from_config(self, tmp_path, clean_logging_after):
+        """setup_logging() with no arguments reads enable_file_logging from ConfigManager."""
+        from src.logging_config import setup_logging
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True)
+
+        with patch("src.logging_config._get_log_dir", return_value=log_dir):
+            with patch("src.logging_config.logging_config_logger"):
+                # ConfigManager is lazily imported from src.config_manager,
+                # so we patch it at its real home.
+                with patch("src.config_manager.ConfigManager") as MockCM:
+                    mock_instance = MockCM.return_value
+                    mock_instance.get.return_value = True
+                    setup_logging()
+
+        root = logging.getLogger()
+        file_handlers = [h for h in root.handlers
+                         if isinstance(h, logging.handlers.RotatingFileHandler)]
+        assert len(file_handlers) == 1, (
+            f"Expected 1 RotatingFileHandler when config says True, got {len(file_handlers)}"
+        )

@@ -101,10 +101,15 @@ jobs:
             ICON_FLAG="--icon src/resources/icons/icon.ico"
           fi
 
+          DIR_MODE="--onedir"
+          if [ "${{ matrix.platform }}" = "Windows" ]; then
+            DIR_MODE="--onefile"
+          fi
+
           uv run pyinstaller \
             --name simple-edge-tts \
             --windowed \
-            --onedir \
+            $DIR_MODE \
             --noupx \
             --add-data "src/resources${{ matrix.sep }}src/resources" \
             --add-data "src/static${{ matrix.sep }}src/static" \
@@ -149,7 +154,7 @@ jobs:
       - name: Create .zip (Windows)
         if: matrix.platform == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist/simple-edge-tts -DestinationPath dist/simple-edge-tts-windows.zip
+        run: Compress-Archive -Path dist/simple-edge-tts.exe -DestinationPath dist/simple-edge-tts-windows.zip
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

@@ -26,10 +26,38 @@ const LANGUAGES = [
   { code: "zh-TW", label: "繁體中文" },
 ];
 
-export function SettingsModal({ open, onClose, t, language, onLanguageChange }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, api, t, language, onLanguageChange }: SettingsModalProps) {
   const [closing, setClosing] = useState(false);
+  const [enableLogging, setEnableLogging] = useState(false);
+  const [showRestartDialog, setShowRestartDialog] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+
+  // Load logging config when modal opens
+  useEffect(() => {
+    if (open && api.ready) {
+      api.getConfig("enable_file_logging").then((res) => {
+        if (res && res.value !== undefined) {
+          setEnableLogging(!!res.value);
+        }
+      });
+    }
+  }, [open, api, api.ready]);
+
+  const handleLoggingToggle = useCallback(
+    async (checked: boolean) => {
+      setEnableLogging(checked);
+      if (api.ready) {
+        try {
+          await api.setConfig("enable_file_logging", checked);
+          setShowRestartDialog(true);
+        } catch (e) {
+          console.error("Failed to save config", e);
+        }
+      }
+    },
+    [api]
+  );
 
   // ESC key handler
   useEffect(() => {
@@ -98,6 +126,7 @@ export function SettingsModal({ open, onClose, t, language, onLanguageChange }: 
         aria-modal="true"
         aria-label="Settings"
         style={{
+          position: "relative",
           width: 480,
           maxWidth: "90vw",
           maxHeight: "80vh",
@@ -213,6 +242,74 @@ export function SettingsModal({ open, onClose, t, language, onLanguageChange }: 
           </select>
         </div>
 
+        {/* File Logging section */}
+        <div style={{ marginBottom: "var(--space-6)" }}>
+          <div className="flex items-center justify-between" style={{ minHeight: 44 }}>
+            <div>
+              <h3
+                style={{
+                  fontSize: 16,
+                  fontWeight: 600,
+                  lineHeight: 1.4,
+                  letterSpacing: "-0.1px",
+                  color: "var(--color-text-primary)",
+                  margin: 0,
+                }}
+              >
+                {t("enable_logging")}
+              </h3>
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "var(--color-text-secondary)",
+                  margin: "var(--space-1) 0 0 0",
+                  maxWidth: "340px",
+                  lineHeight: 1.4,
+                }}
+              >
+                {t("enable_logging_desc")}
+              </p>
+            </div>
+            
+            <button
+              role="switch"
+              aria-checked={enableLogging}
+              onClick={() => handleLoggingToggle(!enableLogging)}
+              style={{
+                position: "relative",
+                width: 44,
+                height: 24,
+                backgroundColor: enableLogging ? "var(--primary)" : "var(--border)",
+                borderRadius: "var(--radius-full)",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                transition: "background-color var(--duration-fast) var(--ease-default)",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.boxShadow = "var(--shadow-focus)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 18,
+                  height: 18,
+                  backgroundColor: "#ffffff",
+                  borderRadius: "50%",
+                  boxShadow: "var(--shadow-sm)",
+                  transform: enableLogging ? "translateX(22px)" : "translateX(4px)",
+                  transition: "transform var(--duration-fast) var(--ease-spring)",
+                }}
+              />
+            </button>
+          </div>
+        </div>
+
         {/* About section */}
         <div>
           <h3
@@ -254,6 +351,74 @@ export function SettingsModal({ open, onClose, t, language, onLanguageChange }: 
             </div>
           </div>
         </div>
+
+        {/* Restart Required Dialog overlay */}
+        {showRestartDialog && (
+          <div
+            className="absolute inset-0 flex items-center justify-center animate-toast-in"
+            style={{
+              background: "var(--color-overlay, rgba(0, 0, 0, 0.4))",
+              backdropFilter: "blur(2px)",
+              borderRadius: "var(--radius-xl)",
+              zIndex: 50,
+              padding: "var(--space-6)",
+            }}
+          >
+            <div
+              style={{
+                width: 320,
+                background: "var(--color-surface)",
+                borderRadius: "var(--radius-lg)",
+                boxShadow: "var(--shadow-elevated)",
+                padding: "var(--space-5)",
+                textAlign: "center",
+              }}
+            >
+              <h4
+                style={{
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: "var(--color-text-primary)",
+                  margin: "0 0 var(--space-2) 0",
+                }}
+              >
+                {t("restart_required_title")}
+              </h4>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "var(--color-text-secondary)",
+                  margin: "0 0 var(--space-4) 0",
+                  lineHeight: 1.4,
+                }}
+              >
+                {t("restart_required_desc")}
+              </p>
+              <button
+                onClick={() => setShowRestartDialog(false)}
+                className="w-full flex items-center justify-center rounded-md"
+                style={{
+                  height: 36,
+                  background: "var(--primary)",
+                  color: "var(--primary-foreground)",
+                  border: "none",
+                  fontWeight: 500,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  transition: "background-color var(--duration-fast) var(--ease-default)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--color-accent-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--primary)";
+                }}
+              >
+                {t("ok")}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Enter animation keyframes */}

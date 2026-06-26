@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # deploy.sh — PyInstaller packaging script for simple-edge-tts
-# Usage: ./deploy.sh [build|clean|build-exe|get-exe]
+# Usage: ./deploy.sh [build|clean|build-exe]
 
 APP_NAME="simple-edge-tts"
 ENTRY_POINT="src/main.py"
@@ -89,10 +89,15 @@ do_build() {
     # Build with PyInstaller
     info "Building ${APP_NAME} with PyInstaller..."
 
+    local dir_mode="--onedir"
+    if [ "$PLATFORM" = "Windows" ]; then
+        dir_mode="--onefile"
+    fi
+
     local pyinstaller_args=(
         --name "$APP_NAME"
         --windowed
-        --onedir
+        "$dir_mode"
         --noupx
         --add-data "${RESOURCES_DIR}${sep}${RESOURCES_DIR}"
         --add-data "src/static${sep}src/static"
@@ -183,7 +188,7 @@ do_build() {
         echo "  App: dist/${APP_NAME}.app"
         echo "  DMG: dist/${APP_NAME}.dmg"
     elif [ "$PLATFORM" = "Windows" ]; then
-        echo "  Exe: dist/${APP_NAME}/${APP_NAME}.exe"
+        echo "  Exe: dist/${APP_NAME}.exe"
     else
         echo "  Binary: dist/${APP_NAME}/${APP_NAME}"
     fi
@@ -232,39 +237,22 @@ do_build_exe() {
 
     if gh run watch "$run_id" --repo "$REPO" --exit-status; then
         pass "CI build completed successfully (run ${run_id})"
+
+        info "Downloading Windows artifact..."
+        mkdir -p dist
+        # Ref: #104 — Clean up existing download target files to prevent extraction failure
+        rm -f dist/simple-edge-tts-windows.zip
+        if gh run download "$run_id" --repo "$REPO" -n "${APP_NAME}-Windows" --dir dist/; then
+            pass "Windows artifact downloaded to dist/"
+            # List downloaded files
+            find dist/ -type f -name "*.zip" -o -name "*.exe" | while read -r f; do
+                echo "  → $f"
+            done
+        else
+            fail "Failed to download Windows artifact from run ${run_id}"
+        fi
     else
         fail "CI build failed (run ${run_id}). Check: https://github.com/${REPO}/actions/runs/${run_id}"
-    fi
-}
-
-do_get_exe() {
-    check_gh
-
-    local branch
-    branch=$(git branch --show-current 2>/dev/null || echo "main")
-    if [ -z "$branch" ]; then
-        branch="main"
-    fi
-
-    info "Finding latest successful workflow_dispatch build on branch ${branch}..."
-    local run_id
-    run_id=$(gh run list --repo "$REPO" --workflow=release.yml --event=workflow_dispatch --branch "$branch" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
-    if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
-        fail "No successful workflow_dispatch runs found on branch ${branch}. Run './deploy.sh build-exe' first"
-    fi
-
-    echo "  Run ID: ${run_id}"
-
-    info "Downloading Windows artifact..."
-    mkdir -p dist
-    if gh run download "$run_id" --repo "$REPO" -n "${APP_NAME}-Windows" --dir dist/; then
-        pass "Windows artifact downloaded to dist/"
-        # List downloaded files
-        find dist/ -type f -name "*.zip" -o -name "*.exe" | while read -r f; do
-            echo "  → $f"
-        done
-    else
-        fail "Failed to download Windows artifact from run ${run_id}"
     fi
 }
 
@@ -278,11 +266,8 @@ case "$CMD" in
     build-exe)
         do_build_exe
         ;;
-    get-exe)
-        do_get_exe
-        ;;
     *)
-        echo "Usage: $0 [build|clean|build-exe|get-exe]"
+        echo "Usage: $0 [build|clean|build-exe]"
         exit 1
         ;;
 esac

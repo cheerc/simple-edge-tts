@@ -32,6 +32,10 @@ _BACKUP_COUNT = 5
 # logging.getLogger(__name__) for their own loggers.
 logging_config_logger = logging.getLogger(__name__)
 
+# Idempotency guard: set to True after first successful setup_logging() call
+# so repeated calls are no-ops regardless of enable_file_logging value.
+_setup_done = False
+
 
 def _get_log_dir() -> Path:
     """Return the platform-appropriate log directory.
@@ -46,7 +50,15 @@ def _get_log_dir() -> Path:
 
     if sys.platform == "win32":
         if getattr(sys, "frozen", False):
-            return Path(sys.executable).parent
+            exe_dir = Path(sys.executable).parent
+            try:
+                test_file = exe_dir / ".log_write_test"
+                test_file.touch()
+                test_file.unlink()
+                return exe_dir
+            except Exception:
+                pass
+
         base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA", "")
         if not base:
             # Ultimate fallback — should be rare
@@ -70,7 +82,7 @@ def _get_log_level() -> int:
     return logging.INFO
 
 
-def setup_logging() -> None:
+def setup_logging(enable_file_logging: bool | None = None) -> None:
     """Configure the root logger with rotating file + console output.
 
     This should be called once at the start of main(), before any
@@ -85,54 +97,66 @@ def setup_logging() -> None:
 
     Idempotent: calling this twice will not add duplicate handlers.
     """
-    root = logging.getLogger()
+    global _setup_done
 
-    # Guard against double-init
-    already_set_up = any(
-        isinstance(h, logging.handlers.RotatingFileHandler)
-        for h in root.handlers
-    )
-    if already_set_up:
+    # Guard against double-init: once setup completes (regardless of
+    # enable_file_logging), subsequent calls are no-ops.  Using a
+    # module-level flag instead of checking handler types ensures
+    # idempotency works when file logging is disabled.
+    if _setup_done:
         return
 
-    log_dir = _get_log_dir()
-    log_dir.mkdir(parents=True, exist_ok=True)
+    root = logging.getLogger()
 
-    # Log file name includes the start timestamp so each run has its own file
-    # while rotation handles size limits within a run.
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f"simple-edge-tts_{timestamp}.log"
+    if enable_file_logging is None:
+        try:
+            from src.config_manager import ConfigManager
+            config = ConfigManager()
+            enable_file_logging = bool(config.get("enable_file_logging"))
+        except Exception:
+            enable_file_logging = False
+
+    log_dir = _get_log_dir()
 
     # Format
     formatter = logging.Formatter(fmt=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
 
-    # File handler with rotation
-    file_handler = logging.handlers.RotatingFileHandler(
-        filename=str(log_file),
-        maxBytes=_MAX_BYTES,
-        backupCount=_BACKUP_COUNT,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)  # File captures everything
+    if enable_file_logging:
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Log file name includes the start timestamp so each run has its own file
+        # while rotation handles size limits within a run.
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = log_dir / f"simple-edge-tts_{timestamp}.log"
+
+        # File handler with rotation
+        file_handler = logging.handlers.RotatingFileHandler(
+            filename=str(log_file),
+            maxBytes=_MAX_BYTES,
+            backupCount=_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.DEBUG)  # File captures everything
+        root.addHandler(file_handler)
+
+        # Print log path so users can find it even in frozen builds
+        print(f"[simple-edge-tts] Log: {log_file}", file=sys.stderr)
 
     # Console handler (stderr)
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(formatter)
     console_handler.setLevel(_get_log_level())  # Console respects env-specific level
 
-    root.addHandler(file_handler)
     root.addHandler(console_handler)
 
-    # Root logger level set to DEBUG so file_handler gets all debug logs,
-    # while console_handler filters them according to console_handler.level.
+    # Root logger level set to DEBUG so console/file handlers filter them accordingly.
     root.setLevel(logging.DEBUG)
 
-    # Print log path so users can find it even in frozen builds
-    print(f"[simple-edge-tts] Log: {log_file}", file=sys.stderr)
+    _setup_done = True
 
-    logging_config_logger.info("Logging initialised — level=%s, dir=%s",
-                               logging.getLevelName(_get_log_level()), log_dir)
+    logging_config_logger.info("Logging initialised — level=%s, dir=%s, file_logging=%s",
+                               logging.getLevelName(_get_log_level()), log_dir, enable_file_logging)
 
 
 def start_diagnostic_monitor(interval_seconds: float = 5.0) -> None:
