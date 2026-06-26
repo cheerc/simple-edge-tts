@@ -21,6 +21,7 @@ from src.api import Api
 from src.audio_player import AudioPlayer
 from src.config_manager import ConfigManager
 from src.i18n import I18n
+from src.logging_config import setup_logging
 from src.tts_engine import TTSEngine, shutdown_event_loop, _ensure_selector_policy
 from src.system_tray import SystemTrayManager
 
@@ -84,6 +85,11 @@ def _get_frontend_url() -> str:
 
 def main():
     """Launch the application."""
+    # Ref: #99 — File-based logging for runtime diagnostics.
+    # Must be called before anything else so all subsequent logger output
+    # is captured to disk (vital for PyInstaller-frozen builds).
+    setup_logging()
+
     # Ref: #95 — Must be called on the main thread before any event loop
     # is created. On Windows this switches the global asyncio policy from
     # ProactorEventLoop (incompatible with aiohttp DNS) to SelectorEventLoop.
