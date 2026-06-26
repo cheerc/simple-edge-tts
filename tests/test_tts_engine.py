@@ -362,10 +362,10 @@ class TestEnsureSelectorPolicyExported:
         from src.tts_engine import _ensure_selector_policy
         assert callable(_ensure_selector_policy)
 
-    def test_ensure_selector_policy_noop_on_macos(self):
-        """_ensure_selector_policy() is a no-op on macOS (sys.platform != 'win32')."""
+    def test_ensure_selector_policy_noop_on_non_windows(self):
+        """_ensure_selector_policy() is a no-op on non-Windows platforms (macOS/Linux)."""
         import sys
-        assert sys.platform == "darwin"  # This test runs on macOS
+        assert sys.platform != "win32"  # This test runs on macOS/Linux CI
         from src.tts_engine import _ensure_selector_policy
         with patch("asyncio.set_event_loop_policy") as mock_set:
             _ensure_selector_policy()
