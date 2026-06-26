@@ -35,7 +35,7 @@ jobs:
       # invisible to per-PR CI; this catches them at PR time.
       - name: Validate workflow YAML
         run: |
-          python3 -c "
+          uv run python3 -c "
           import yaml, glob, sys
           errors = []
           for f in sorted(glob.glob('.github/workflows/*.yml')):
