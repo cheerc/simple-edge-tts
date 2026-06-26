@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 from collections import OrderedDict
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -98,7 +99,12 @@ def run_async(coro):
     loop = _get_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     logger.debug("Waiting for coroutine on event loop (timeout=%ds)", _RUN_ASYNC_TIMEOUT)
-    return future.result(timeout=_RUN_ASYNC_TIMEOUT)
+    try:
+        return future.result(timeout=_RUN_ASYNC_TIMEOUT)
+    except TimeoutError:
+        logger.warning("run_async timed out after %ds, cancelling coroutine to prevent leakage", _RUN_ASYNC_TIMEOUT)
+        future.cancel()
+        raise
 
 
 def shutdown_event_loop(timeout: float = 5.0) -> None:
@@ -145,6 +151,30 @@ async def _fetch_voices_with_timeout() -> list[Any]:
     )
 
 
+def _load_fallback_voices() -> list[Any]:
+    """Load the bundled fallback voices JSON file.
+
+    Returns:
+        A list of voice dicts, or empty list if the file cannot be loaded.
+    """
+    try:
+        import json
+        if getattr(sys, "frozen", False):
+            base_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+        else:
+            base_dir = Path(__file__).parent.parent
+
+        fallback_path = base_dir / "src" / "resources" / "fallback_voices.json"
+        if fallback_path.exists():
+            with open(fallback_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        else:
+            logger.warning("Fallback voices file not found at %s", fallback_path)
+    except Exception as e:
+        logger.error("Failed to load fallback voices: %s", e, exc_info=True)
+    return []
+
+
 
 def format_rate(value: int) -> str:
     return f"+{value}%" if value >= 0 else f"{value}%"
@@ -187,11 +217,11 @@ class TTSEngine:
         try:
             self._voices_cache = run_async(_fetch_voices_with_timeout())
         except Exception:
-            # Network error — leave cache as None; get_voices_sync()
-            # will fall back to fetching online.
+            # Network error — load fallback voices to ensure the dropdown is not empty
             # Ref: #95 — log the failure for diagnostics on Windows.
-            logger.warning("Voice prefetch failed (will retry on demand)",
+            logger.warning("Voice prefetch failed, loading fallback voices into cache",
                            exc_info=True)
+            self._voices_cache = _load_fallback_voices()
 
     def get_voices_sync(self) -> list[Any]:
         # Ref: #43 — return cached voices if available (pre-fetched)
@@ -203,8 +233,8 @@ class TTSEngine:
         try:
             return run_async(_fetch_voices_with_timeout())
         except Exception:
-            logger.error("Voice list fetch failed", exc_info=True)
-            return []
+            logger.error("Voice list fetch failed, falling back to local voice list", exc_info=True)
+            return _load_fallback_voices()
 
     def get_grouped_voices_sync(self) -> OrderedDict[str, list[dict]]:
         voices = self.get_voices_sync()
