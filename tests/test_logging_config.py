@@ -47,24 +47,37 @@ class TestGetLogDir:
         assert result == expected
 
     def test_windows_log_dir(self):
-        """On Windows, log dir is %LOCALAPPDATA%/simple-edge-tts/logs/"""
+        """On Windows, log dir is %LOCALAPPDATA%/simple-edge-tts/logs/ when not frozen."""
         from src.logging_config import _get_log_dir
         fake_localappdata = Path(r"C:\Users\test\AppData\Local")
         with patch.object(sys, "platform", "win32"):
-            with patch.dict("os.environ", {"LOCALAPPDATA": str(fake_localappdata)}):
-                result = _get_log_dir()
+            with patch.object(sys, "frozen", False, create=True):
+                with patch.dict("os.environ", {"LOCALAPPDATA": str(fake_localappdata)}):
+                    result = _get_log_dir()
         expected = fake_localappdata / "simple-edge-tts" / "logs"
         assert result == expected
 
     def test_windows_fallback_to_appdata(self):
-        """On Windows without LOCALAPPDATA, fall back to APPDATA."""
+        """On Windows without LOCALAPPDATA, fall back to APPDATA when not frozen."""
         from src.logging_config import _get_log_dir
         fake_appdata = Path(r"C:\Users\test\AppData\Roaming")
         fake_env = {"LOCALAPPDATA": "", "APPDATA": str(fake_appdata)}
         with patch.object(sys, "platform", "win32"):
-            with patch.dict("os.environ", fake_env):
-                result = _get_log_dir()
+            with patch.object(sys, "frozen", False, create=True):
+                with patch.dict("os.environ", fake_env):
+                    result = _get_log_dir()
         expected = fake_appdata / "simple-edge-tts" / "logs"
+        assert result == expected
+
+    def test_windows_frozen_log_dir(self):
+        """On Windows when frozen, log dir is the directory of the executable."""
+        from src.logging_config import _get_log_dir
+        fake_exe = "D:/Program Files/simple-edge-tts/simple-edge-tts.exe"
+        with patch.object(sys, "platform", "win32"):
+            with patch.object(sys, "frozen", True, create=True):
+                with patch.object(sys, "executable", fake_exe):
+                    result = _get_log_dir()
+        expected = Path("D:/Program Files/simple-edge-tts")
         assert result == expected
 
     def test_linux_log_dir(self):
