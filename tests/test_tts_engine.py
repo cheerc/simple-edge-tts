@@ -202,3 +202,173 @@ class TestShutdownEventLoop:
         assert loop2.is_running()
         assert loop2 is not loop1
 
+
+class TestWindowsEventLoopPolicy:
+    """Tests for Windows-specific event loop policy fix (Issue #95).
+
+    On Windows, asyncio defaults to ProactorEventLoop which is incompatible
+    with aiohttp's DNS resolver. _get_loop() must ensure SelectorEventLoop
+    is used on Windows to prevent the app from hanging during voice list
+    initialization.
+    """
+
+    def test_ensure_selector_policy_sets_policy_on_windows(self):
+        """_ensure_selector_policy() sets WindowsSelectorEventLoopPolicy when on Windows."""
+        from src.tts_engine import _ensure_selector_policy
+
+        with patch("src.tts_engine.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            # Mock the Windows-specific policy class
+            mock_policy_cls = MagicMock()
+            with patch.dict("sys.modules", {}):
+                with patch("asyncio.WindowsSelectorEventLoopPolicy", mock_policy_cls, create=True):
+                    with patch("asyncio.set_event_loop_policy") as mock_set_policy:
+                        _ensure_selector_policy()
+                        mock_set_policy.assert_called_once_with(mock_policy_cls())
+
+    def test_ensure_selector_policy_noop_on_non_windows(self):
+        """_ensure_selector_policy() does nothing on macOS/Linux."""
+        from src.tts_engine import _ensure_selector_policy
+
+        with patch("src.tts_engine.sys") as mock_sys:
+            mock_sys.platform = "darwin"
+            with patch("asyncio.set_event_loop_policy") as mock_set_policy:
+                _ensure_selector_policy()
+                mock_set_policy.assert_not_called()
+
+    def test_get_loop_does_not_call_ensure_selector_policy(self):
+        """_get_loop() does NOT call _ensure_selector_policy() — it's called from main() instead (Ref: #95)."""
+        from src.tts_engine import _get_loop, shutdown_event_loop
+
+        # Shutdown any existing loop so _get_loop creates a new one
+        shutdown_event_loop()
+
+        with patch("src.tts_engine._ensure_selector_policy") as mock_ensure:
+            loop = _get_loop()
+            mock_ensure.assert_not_called()
+            assert loop.is_running()
+
+
+class TestGetVoicesSyncGracefulDegradation:
+    """Tests for graceful degradation when voice fetch fails (Issue #95).
+
+    When both prefetch cache is empty AND online fetch fails, get_voices_sync()
+    should return an empty list instead of propagating the exception — this
+    prevents the Windows app from hanging when the IPC call blocks.
+    """
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_get_voices_sync_returns_empty_on_failure(self, mock_list):
+        """get_voices_sync() returns [] when cache is None and online fetch raises."""
+        mock_list.side_effect = Exception("network error")
+        engine = TTSEngine()
+        assert engine._voices_cache is None
+        result = engine.get_voices_sync()
+        assert result == []
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_get_voices_sync_returns_empty_on_timeout(self, mock_list):
+        """get_voices_sync() returns [] when online fetch times out."""
+        mock_list.side_effect = TimeoutError("timed out")
+        engine = TTSEngine()
+        result = engine.get_voices_sync()
+        assert result == []
+
+
+class TestVoiceFetchTimeout:
+    """Tests for _fetch_voices_with_timeout() — network-level timeout wrapper (Issue #95).
+
+    edge_tts.list_voices() uses aiohttp with no timeout by default.
+    _fetch_voices_with_timeout() wraps it with asyncio.wait_for(timeout=10)
+    and a force_close TCPConnector to prevent indefinite hangs on Windows.
+    """
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_fetch_voices_with_timeout_returns_voices(self, mock_list):
+        """_fetch_voices_with_timeout() returns voice list when network succeeds."""
+        mock_voices = [
+            {"ShortName": "zh-TW-HsiaoChenNeural", "Locale": "zh-TW", "Gender": "Female"},
+        ]
+        mock_list.return_value = mock_voices
+        from src.tts_engine import _fetch_voices_with_timeout, run_async
+        result = run_async(_fetch_voices_with_timeout())
+        assert result == mock_voices
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_prefetch_voices_passes_connector_to_list_voices(self, mock_list):
+        """prefetch_voices() → _fetch_voices_with_timeout() passes a TCPConnector to list_voices."""
+        mock_voices = [{"ShortName": "test", "Locale": "en-US", "Gender": "Female"}]
+        mock_list.return_value = mock_voices
+        engine = TTSEngine()
+        engine.prefetch_voices()
+        assert engine._voices_cache == mock_voices
+        # Verify list_voices was called with a connector kwarg
+        call_kwargs = mock_list.call_args.kwargs
+        assert "connector" in call_kwargs
+        import aiohttp
+        assert isinstance(call_kwargs["connector"], aiohttp.TCPConnector)
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_get_voices_sync_passes_connector_to_list_voices(self, mock_list):
+        """get_voices_sync() → _fetch_voices_with_timeout() passes a TCPConnector to list_voices."""
+        mock_voices = [{"ShortName": "test", "Locale": "en-US", "Gender": "Female"}]
+        mock_list.return_value = mock_voices
+        engine = TTSEngine()
+        result = engine.get_voices_sync()
+        assert result == mock_voices
+        call_kwargs = mock_list.call_args.kwargs
+        assert "connector" in call_kwargs
+
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_fetch_voices_with_timeout_propagates_exception(self, mock_list):
+        """_fetch_voices_with_timeout() propagates exceptions from list_voices."""
+        mock_list.side_effect = Exception("network error")
+        from src.tts_engine import _fetch_voices_with_timeout, run_async
+        try:
+            run_async(_fetch_voices_with_timeout())
+            assert False, "Should have raised"
+        except Exception:
+            pass  # Expected — exception propagates through asyncio.wait_for
+
+
+class TestRunAsyncTimeout:
+    """Test that run_async() uses the reduced timeout (Ref: #95)."""
+
+    def test_run_async_timeout_is_15_seconds(self):
+        """run_async() should use _RUN_ASYNC_TIMEOUT = 15 (reduced from 30)."""
+        from src.tts_engine import _RUN_ASYNC_TIMEOUT, run_async
+        assert _RUN_ASYNC_TIMEOUT == 15
+
+        # Verify run_async passes the correct timeout to future.result
+        with patch("src.tts_engine._get_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            mock_future = MagicMock()
+            mock_loop.is_closed.return_value = False
+            mock_future.result = MagicMock(return_value="ok")
+            with patch("src.tts_engine.asyncio.run_coroutine_threadsafe", return_value=mock_future):
+                mock_get_loop.return_value = mock_loop
+                # Use MagicMock instead of real coroutine to avoid
+                # "was never awaited" RuntimeWarning
+                mock_coro = MagicMock()
+                result = run_async(mock_coro)
+                assert result == "ok"
+                mock_future.result.assert_called_once_with(timeout=15)
+
+
+class TestEnsureSelectorPolicyExported:
+    """Test that _ensure_selector_policy is exported and callable."""
+
+    def test_ensure_selector_policy_is_importable(self):
+        """_ensure_selector_policy is importable from src.tts_engine."""
+        from src.tts_engine import _ensure_selector_policy
+        assert callable(_ensure_selector_policy)
+
+    def test_ensure_selector_policy_noop_on_non_windows(self):
+        """_ensure_selector_policy() is a no-op on non-Windows platforms (macOS/Linux)."""
+        import sys
+        assert sys.platform != "win32"  # This test runs on macOS/Linux CI
+        from src.tts_engine import _ensure_selector_policy
+        with patch("asyncio.set_event_loop_policy") as mock_set:
+            _ensure_selector_policy()
+            mock_set.assert_not_called()
+

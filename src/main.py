@@ -21,7 +21,7 @@ from src.api import Api
 from src.audio_player import AudioPlayer
 from src.config_manager import ConfigManager
 from src.i18n import I18n
-from src.tts_engine import TTSEngine, shutdown_event_loop
+from src.tts_engine import TTSEngine, shutdown_event_loop, _ensure_selector_policy
 from src.system_tray import SystemTrayManager
 
 VITE_DEV_URL = "http://localhost:5173"
@@ -84,6 +84,11 @@ def _get_frontend_url() -> str:
 
 def main():
     """Launch the application."""
+    # Ref: #95 — Must be called on the main thread before any event loop
+    # is created. On Windows this switches the global asyncio policy from
+    # ProactorEventLoop (incompatible with aiohttp DNS) to SelectorEventLoop.
+    _ensure_selector_policy()
+
     config = ConfigManager()
     i18n = I18n(config.get("language"), translations_dir=TRANSLATIONS_DIR)
     tts_engine = TTSEngine()
