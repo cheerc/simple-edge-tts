@@ -140,7 +140,7 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=True)
 
         assert log_dir.exists()
         assert log_dir.is_dir()
@@ -153,7 +153,7 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=True)
 
         # Verify a FileHandler was added to the root logger
         root = logging.getLogger()
@@ -176,7 +176,7 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=True)
 
         root = logging.getLogger()
         file_handlers = [h for h in root.handlers
@@ -198,7 +198,7 @@ class TestSetupLogging:
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
                 with patch("src.logging_config._get_log_level", return_value=logging.INFO):
-                    setup_logging()
+                    setup_logging(enable_file_logging=True)
 
         root = logging.getLogger()
         assert root.level == logging.DEBUG
@@ -213,7 +213,7 @@ class TestSetupLogging:
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
                 with patch("sys.stderr", mock_stderr):
-                    setup_logging()
+                    setup_logging(enable_file_logging=True)
 
         # Verify stderr.write was called at least once with the log path
         stderr_calls = "".join(
@@ -230,7 +230,7 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=True)
 
         root = logging.getLogger()
         file_handlers = [h for h in root.handlers
@@ -250,8 +250,8 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
-                setup_logging()
+                setup_logging(enable_file_logging=True)
+                setup_logging(enable_file_logging=True)
 
         root = logging.getLogger()
         file_handlers = [h for h in root.handlers
@@ -266,10 +266,25 @@ class TestSetupLogging:
 
         with patch("src.logging_config._get_log_dir", return_value=log_dir):
             with patch("src.logging_config.logging_config_logger"):
-                setup_logging()
+                setup_logging(enable_file_logging=False)
 
         root = logging.getLogger()
         stream_handlers = [h for h in root.handlers
                            if isinstance(h, logging.StreamHandler)
                            and not isinstance(h, logging.handlers.RotatingFileHandler)]
         assert len(stream_handlers) >= 1
+
+    def test_no_file_handler_when_disabled(self, tmp_path, clean_logging_after):
+        """setup_logging(enable_file_logging=False) does not add a RotatingFileHandler."""
+        from src.logging_config import setup_logging
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True)
+
+        with patch("src.logging_config._get_log_dir", return_value=log_dir):
+            with patch("src.logging_config.logging_config_logger"):
+                setup_logging(enable_file_logging=False)
+
+        root = logging.getLogger()
+        file_handlers = [h for h in root.handlers
+                         if isinstance(h, logging.handlers.RotatingFileHandler)]
+        assert len(file_handlers) == 0

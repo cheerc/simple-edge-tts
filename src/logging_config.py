@@ -78,7 +78,7 @@ def _get_log_level() -> int:
     return logging.INFO
 
 
-def setup_logging() -> None:
+def setup_logging(enable_file_logging: bool | None = None) -> None:
     """Configure the root logger with rotating file + console output.
 
     This should be called once at the start of main(), before any
@@ -103,44 +103,53 @@ def setup_logging() -> None:
     if already_set_up:
         return
 
-    log_dir = _get_log_dir()
-    log_dir.mkdir(parents=True, exist_ok=True)
+    if enable_file_logging is None:
+        try:
+            from src.config_manager import ConfigManager
+            config = ConfigManager()
+            enable_file_logging = bool(config.get("enable_file_logging"))
+        except Exception:
+            enable_file_logging = False
 
-    # Log file name includes the start timestamp so each run has its own file
-    # while rotation handles size limits within a run.
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f"simple-edge-tts_{timestamp}.log"
+    log_dir = _get_log_dir()
 
     # Format
     formatter = logging.Formatter(fmt=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
 
-    # File handler with rotation
-    file_handler = logging.handlers.RotatingFileHandler(
-        filename=str(log_file),
-        maxBytes=_MAX_BYTES,
-        backupCount=_BACKUP_COUNT,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)  # File captures everything
+    if enable_file_logging:
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Log file name includes the start timestamp so each run has its own file
+        # while rotation handles size limits within a run.
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = log_dir / f"simple-edge-tts_{timestamp}.log"
+
+        # File handler with rotation
+        file_handler = logging.handlers.RotatingFileHandler(
+            filename=str(log_file),
+            maxBytes=_MAX_BYTES,
+            backupCount=_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.DEBUG)  # File captures everything
+        root.addHandler(file_handler)
+
+        # Print log path so users can find it even in frozen builds
+        print(f"[simple-edge-tts] Log: {log_file}", file=sys.stderr)
 
     # Console handler (stderr)
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(formatter)
     console_handler.setLevel(_get_log_level())  # Console respects env-specific level
 
-    root.addHandler(file_handler)
     root.addHandler(console_handler)
 
-    # Root logger level set to DEBUG so file_handler gets all debug logs,
-    # while console_handler filters them according to console_handler.level.
+    # Root logger level set to DEBUG so console/file handlers filter them accordingly.
     root.setLevel(logging.DEBUG)
 
-    # Print log path so users can find it even in frozen builds
-    print(f"[simple-edge-tts] Log: {log_file}", file=sys.stderr)
-
-    logging_config_logger.info("Logging initialised — level=%s, dir=%s",
-                               logging.getLevelName(_get_log_level()), log_dir)
+    logging_config_logger.info("Logging initialised — level=%s, dir=%s, file_logging=%s",
+                               logging.getLevelName(_get_log_level()), log_dir, enable_file_logging)
 
 
 def start_diagnostic_monitor(interval_seconds: float = 5.0) -> None:
