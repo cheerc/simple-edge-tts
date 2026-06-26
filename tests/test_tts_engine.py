@@ -116,13 +116,17 @@ class TestTTSEnginePrefetchCache:
         result = engine.get_voices_sync()
         assert result == online_voices
 
+    @patch("src.tts_engine._load_fallback_voices")
     @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
-    def test_prefetch_voices_exception_leaves_cache_none(self, mock_list):
-        """If prefetch_voices() raises, _voices_cache stays None (fallback still works)."""
+    def test_prefetch_voices_exception_populates_cache_with_fallback(self, mock_list, mock_load):
+        """If prefetch_voices() raises, _voices_cache is populated with fallback voices."""
         mock_list.side_effect = Exception("network error")
+        mock_load.return_value = [{"ShortName": "fallback"}]
         engine = TTSEngine()
         engine.prefetch_voices()  # Should not raise
-        assert engine._voices_cache is None
+        assert engine._voices_cache == [{"ShortName": "fallback"}]
+        mock_load.assert_called_once()
+
 
 
 class TestGetLoopCustomExecutor:
@@ -253,26 +257,33 @@ class TestGetVoicesSyncGracefulDegradation:
     """Tests for graceful degradation when voice fetch fails (Issue #95).
 
     When both prefetch cache is empty AND online fetch fails, get_voices_sync()
-    should return an empty list instead of propagating the exception — this
-    prevents the Windows app from hanging when the IPC call blocks.
+    should return fallback voices instead of propagating the exception or returning
+    an empty list — this prevents the Windows app from hanging and keeps the UI robust.
     """
 
+    @patch("src.tts_engine._load_fallback_voices")
     @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
-    def test_get_voices_sync_returns_empty_on_failure(self, mock_list):
-        """get_voices_sync() returns [] when cache is None and online fetch raises."""
+    def test_get_voices_sync_returns_fallback_on_failure(self, mock_list, mock_load):
+        """get_voices_sync() returns fallback voices when cache is None and online fetch raises."""
         mock_list.side_effect = Exception("network error")
+        mock_load.return_value = [{"ShortName": "fallback"}]
         engine = TTSEngine()
         assert engine._voices_cache is None
         result = engine.get_voices_sync()
-        assert result == []
+        assert result == [{"ShortName": "fallback"}]
+        mock_load.assert_called_once()
 
+    @patch("src.tts_engine._load_fallback_voices")
     @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
-    def test_get_voices_sync_returns_empty_on_timeout(self, mock_list):
-        """get_voices_sync() returns [] when online fetch times out."""
+    def test_get_voices_sync_returns_fallback_on_timeout(self, mock_list, mock_load):
+        """get_voices_sync() returns fallback voices when online fetch times out."""
         mock_list.side_effect = TimeoutError("timed out")
+        mock_load.return_value = [{"ShortName": "fallback"}]
         engine = TTSEngine()
         result = engine.get_voices_sync()
-        assert result == []
+        assert result == [{"ShortName": "fallback"}]
+        mock_load.assert_called_once()
+
 
 
 class TestVoiceFetchTimeout:
@@ -307,6 +318,18 @@ class TestVoiceFetchTimeout:
         assert "connector" in call_kwargs
         import aiohttp
         assert isinstance(call_kwargs["connector"], aiohttp.TCPConnector)
+
+    @patch("src.tts_engine._load_fallback_voices")
+    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    def test_prefetch_voices_falls_back_on_failure(self, mock_list, mock_load):
+        """prefetch_voices() sets _voices_cache to fallback voices when online fetch fails."""
+        mock_list.side_effect = Exception("network error")
+        mock_load.return_value = [{"ShortName": "fallback"}]
+        engine = TTSEngine()
+        engine.prefetch_voices()
+        assert engine._voices_cache == [{"ShortName": "fallback"}]
+        mock_load.assert_called_once()
+
 
     @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
     def test_get_voices_sync_passes_connector_to_list_voices(self, mock_list):
