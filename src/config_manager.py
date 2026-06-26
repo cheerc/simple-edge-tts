@@ -13,6 +13,7 @@ DEFAULTS = {
     "output_dir": str(Path.home() / "Desktop"),
     "window_geometry": {"x": 100, "y": 100, "w": 900, "h": 600},
     "enable_file_logging": False,
+    "theme": "dark",
 }
 
 

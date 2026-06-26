@@ -50,7 +50,7 @@ class TestSanitizeFilename:
 
 
 class TestTTSEngineVoices:
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_list_voices_returns_list(self, mock_list):
         mock_list.return_value = [
             {"ShortName": "zh-TW-HsiaoChenNeural", "Locale": "zh-TW", "Gender": "Female"},
@@ -60,7 +60,7 @@ class TestTTSEngineVoices:
         voices = engine.get_voices_sync()
         assert len(voices) >= 2
 
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_voices_grouped_tw_first(self, mock_list):
         mock_voices = [
             {"ShortName": "en-US-JennyNeural", "Locale": "en-US", "Gender": "Female"},
@@ -83,7 +83,7 @@ class TestTTSEnginePrefetchCache:
         engine = TTSEngine()
         assert engine._voices_cache is None
 
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_prefetch_voices_populates_cache(self, mock_list):
         """prefetch_voices() calls run_async(edge_tts.list_voices()) and stores result."""
         mock_voices = [
@@ -94,7 +94,7 @@ class TestTTSEnginePrefetchCache:
         engine.prefetch_voices()
         assert engine._voices_cache == mock_voices
 
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_get_voices_sync_returns_cache_when_populated(self, mock_list):
         """get_voices_sync() returns _voices_cache when non-None, without calling list_voices."""
         cached = [{"ShortName": "cached-voice", "Locale": "test", "Gender": "Male"}]
@@ -104,7 +104,7 @@ class TestTTSEnginePrefetchCache:
         assert result == cached
         mock_list.assert_not_called()
 
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_get_voices_sync_falls_back_when_cache_is_none(self, mock_list):
         """get_voices_sync() fetches online when _voices_cache is None."""
         online_voices = [
@@ -117,7 +117,7 @@ class TestTTSEnginePrefetchCache:
         assert result == online_voices
 
     @patch("src.tts_engine._load_fallback_voices")
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_prefetch_voices_exception_populates_cache_with_fallback(self, mock_list, mock_load):
         """If prefetch_voices() raises, _voices_cache is populated with fallback voices."""
         mock_list.side_effect = Exception("network error")
@@ -146,7 +146,7 @@ class TestGetLoopCustomExecutor:
 
 
 class TestTTSEngineGenerate:
-    @patch("src.tts_engine.edge_tts.Communicate")
+    @patch("edge_tts.Communicate")
     def test_generate_creates_file(self, mock_communicate, tmp_path):
         mock_instance = MagicMock()
         mock_instance.save = AsyncMock()
@@ -262,7 +262,7 @@ class TestGetVoicesSyncGracefulDegradation:
     """
 
     @patch("src.tts_engine._load_fallback_voices")
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_get_voices_sync_returns_fallback_on_failure(self, mock_list, mock_load):
         """get_voices_sync() returns fallback voices when cache is None and online fetch raises."""
         mock_list.side_effect = Exception("network error")
@@ -274,7 +274,7 @@ class TestGetVoicesSyncGracefulDegradation:
         mock_load.assert_called_once()
 
     @patch("src.tts_engine._load_fallback_voices")
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_get_voices_sync_returns_fallback_on_timeout(self, mock_list, mock_load):
         """get_voices_sync() returns fallback voices when online fetch times out."""
         mock_list.side_effect = TimeoutError("timed out")
@@ -294,7 +294,7 @@ class TestVoiceFetchTimeout:
     and a force_close TCPConnector to prevent indefinite hangs on Windows.
     """
 
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_fetch_voices_with_timeout_returns_voices(self, mock_list):
         """_fetch_voices_with_timeout() returns voice list when network succeeds."""
         mock_voices = [
@@ -305,7 +305,7 @@ class TestVoiceFetchTimeout:
         result = run_async(_fetch_voices_with_timeout())
         assert result == mock_voices
 
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_prefetch_voices_passes_connector_to_list_voices(self, mock_list):
         """prefetch_voices() → _fetch_voices_with_timeout() passes a TCPConnector to list_voices."""
         mock_voices = [{"ShortName": "test", "Locale": "en-US", "Gender": "Female"}]
@@ -320,7 +320,7 @@ class TestVoiceFetchTimeout:
         assert isinstance(call_kwargs["connector"], aiohttp.TCPConnector)
 
     @patch("src.tts_engine._load_fallback_voices")
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_prefetch_voices_falls_back_on_failure(self, mock_list, mock_load):
         """prefetch_voices() sets _voices_cache to fallback voices when online fetch fails."""
         mock_list.side_effect = Exception("network error")
@@ -331,7 +331,7 @@ class TestVoiceFetchTimeout:
         mock_load.assert_called_once()
 
 
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_get_voices_sync_passes_connector_to_list_voices(self, mock_list):
         """get_voices_sync() → _fetch_voices_with_timeout() passes a TCPConnector to list_voices."""
         mock_voices = [{"ShortName": "test", "Locale": "en-US", "Gender": "Female"}]
@@ -342,7 +342,7 @@ class TestVoiceFetchTimeout:
         call_kwargs = mock_list.call_args.kwargs
         assert "connector" in call_kwargs
 
-    @patch("src.tts_engine.edge_tts.list_voices", new_callable=AsyncMock)
+    @patch("edge_tts.list_voices", new_callable=AsyncMock)
     def test_fetch_voices_with_timeout_propagates_exception(self, mock_list):
         """_fetch_voices_with_timeout() propagates exceptions from list_voices."""
         mock_list.side_effect = Exception("network error")
