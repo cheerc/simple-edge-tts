@@ -204,11 +204,17 @@ check_gh() {
 do_build_exe() {
     check_gh
 
-    info "Triggering CI build via workflow_dispatch..."
-    if ! gh workflow run release.yml --repo "$REPO"; then
+    local branch
+    branch=$(git branch --show-current 2>/dev/null || echo "main")
+    if [ -z "$branch" ]; then
+        branch="main"
+    fi
+
+    info "Triggering CI build via workflow_dispatch on branch ${branch}..."
+    if ! gh workflow run release.yml --ref "$branch" --repo "$REPO"; then
         fail "Failed to trigger workflow. Check your permissions and repo access"
     fi
-    pass "Workflow triggered"
+    pass "Workflow triggered on branch ${branch}"
 
     # Wait a moment for the run to register
     sleep 3
@@ -234,11 +240,17 @@ do_build_exe() {
 do_get_exe() {
     check_gh
 
-    info "Finding latest successful workflow_dispatch build..."
+    local branch
+    branch=$(git branch --show-current 2>/dev/null || echo "main")
+    if [ -z "$branch" ]; then
+        branch="main"
+    fi
+
+    info "Finding latest successful workflow_dispatch build on branch ${branch}..."
     local run_id
-    run_id=$(gh run list --repo "$REPO" --workflow=release.yml --event=workflow_dispatch --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
+    run_id=$(gh run list --repo "$REPO" --workflow=release.yml --event=workflow_dispatch --branch "$branch" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
     if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
-        fail "No successful workflow_dispatch runs found. Run './deploy.sh build-exe' first"
+        fail "No successful workflow_dispatch runs found on branch ${branch}. Run './deploy.sh build-exe' first"
     fi
 
     echo "  Run ID: ${run_id}"

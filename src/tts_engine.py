@@ -98,7 +98,12 @@ def run_async(coro):
     loop = _get_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     logger.debug("Waiting for coroutine on event loop (timeout=%ds)", _RUN_ASYNC_TIMEOUT)
-    return future.result(timeout=_RUN_ASYNC_TIMEOUT)
+    try:
+        return future.result(timeout=_RUN_ASYNC_TIMEOUT)
+    except TimeoutError:
+        logger.warning("run_async timed out after %ds, cancelling coroutine to prevent leakage", _RUN_ASYNC_TIMEOUT)
+        future.cancel()
+        raise
 
 
 def shutdown_event_loop(timeout: float = 5.0) -> None:
