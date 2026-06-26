@@ -347,9 +347,10 @@ class TestRunAsyncTimeout:
             mock_future.result = MagicMock(return_value="ok")
             with patch("src.tts_engine.asyncio.run_coroutine_threadsafe", return_value=mock_future):
                 mock_get_loop.return_value = mock_loop
-                async def dummy_coro():
-                    return "ok"
-                result = run_async(dummy_coro())
+                # Use MagicMock instead of real coroutine to avoid
+                # "was never awaited" RuntimeWarning
+                mock_coro = MagicMock()
+                result = run_async(mock_coro)
                 assert result == "ok"
                 mock_future.result.assert_called_once_with(timeout=15)
 
