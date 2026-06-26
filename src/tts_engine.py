@@ -14,11 +14,21 @@ from collections import OrderedDict
 from datetime import datetime
 from typing import Any
 
+import aiohttp
 import edge_tts
 
 logger = logging.getLogger(__name__)
 
 VOICE_GROUP_ORDER = ["zh-TW", "en-US"]
+
+# Ref: #95 — Network timeout for voice list fetch.
+# aiohttp's default ClientTimeout has all fields None (no timeout),
+# which can hang indefinitely on Windows behind firewalls/proxies.
+_VOICE_FETCH_TIMEOUT = 10  # seconds (asyncio.wait_for)
+
+# Ref: #95 — Reduced from 30s; aiohttp now has its own 10s timeout,
+# so Python-level timeout only needs a modest buffer.
+_RUN_ASYNC_TIMEOUT = 15  # seconds (future.result)
 
 # --- Persistent event loop (module-level singleton) ---
 # PyWebView calls JS API methods from background threads. Using asyncio.run()
@@ -37,6 +47,8 @@ def _ensure_selector_policy() -> None:
     Windows defaults to ProactorEventLoop which is incompatible with
     aiohttp's DNS resolver (used by edge-tts). This causes voice list
     fetches to hang indefinitely on Windows.
+
+    Must be called from the main thread before any event loop is created.
     Ref: #95 — Windows app startup hang due to ProactorEventLoop.
     """
     if sys.platform == "win32":
@@ -52,12 +64,12 @@ def _get_loop() -> asyncio.AbstractEventLoop:
     (which shuts down the *default* executor) does not break DNS
     resolution in aiohttp/edge-tts while the loop is still alive.
     Ref: #43 — aiohttp DNS resolve depends on ThreadPoolExecutor.
-    Ref: #95 — ensure SelectorEventLoop on Windows.
+    Ref: #95 — SelectorEventLoop policy is set by main() before we run.
     """
     global _loop, _thread
     with _lock:
         if _loop is None or _loop.is_closed():
-            _ensure_selector_policy()  # Ref: #95 — must precede new_event_loop()
+            logger.debug("Creating persistent event loop")
             _loop = asyncio.new_event_loop()
             # Ref: #43 — Use a self-managed executor so atexit doesn't kill it
             _loop.set_default_executor(ThreadPoolExecutor(max_workers=4))
@@ -65,6 +77,7 @@ def _get_loop() -> asyncio.AbstractEventLoop:
                 target=_loop.run_forever, daemon=True, name="async-event-loop"
             )
             _thread.start()
+            logger.debug("Event loop thread started (daemon)")
     return _loop
 
 
@@ -80,11 +93,12 @@ def run_async(coro):
         The coroutine's return value.
 
     Raises:
-        TimeoutError: If the coroutine doesn't complete within 30 seconds.
+        TimeoutError: If the coroutine doesn't complete within the timeout.
     """
     loop = _get_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
-    return future.result(timeout=30)
+    logger.debug("Waiting for coroutine on event loop (timeout=%ds)", _RUN_ASYNC_TIMEOUT)
+    return future.result(timeout=_RUN_ASYNC_TIMEOUT)
 
 
 def shutdown_event_loop(timeout: float = 5.0) -> None:
@@ -109,6 +123,26 @@ def shutdown_event_loop(timeout: float = 5.0) -> None:
 
     if thread is not None and thread.is_alive():
         thread.join(timeout=timeout)
+
+
+async def _fetch_voices_with_timeout() -> list[Any]:
+    """Fetch voice list with explicit network timeout.
+
+    edge_tts.list_voices() uses aiohttp.ClientSession with no timeout
+    by default (ClientTimeout all None), which can hang indefinitely
+    on Windows behind firewalls or proxies.
+
+    This wrapper applies two safety measures:
+    1. asyncio.wait_for() — cancels the coroutine after _VOICE_FETCH_TIMEOUT
+    2. aiohttp.TCPConnector(force_close=True) — avoids connection pool issues
+
+    Ref: #95 — aiohttp ClientTimeout + frozen-env TCP connect/SSL hang.
+    """
+    connector = aiohttp.TCPConnector(force_close=True)
+    return await asyncio.wait_for(
+        edge_tts.list_voices(connector=connector),
+        timeout=_VOICE_FETCH_TIMEOUT,
+    )
 
 
 
@@ -148,9 +182,10 @@ class TTSEngine:
         (e.g. network error), the cache stays None and get_voices_sync()
         will fall back to an online fetch.
         Ref: #43 — pre-fetch voices before executor shutdown.
+        Ref: #95 — use _fetch_voices_with_timeout for network-level timeout.
         """
         try:
-            self._voices_cache = run_async(edge_tts.list_voices())
+            self._voices_cache = run_async(_fetch_voices_with_timeout())
         except Exception:
             # Network error — leave cache as None; get_voices_sync()
             # will fall back to fetching online.
@@ -166,7 +201,7 @@ class TTSEngine:
         # return empty list so the frontend can show an error state
         # instead of hanging the IPC bridge indefinitely.
         try:
-            return run_async(edge_tts.list_voices())
+            return run_async(_fetch_voices_with_timeout())
         except Exception:
             logger.error("Voice list fetch failed", exc_info=True)
             return []
