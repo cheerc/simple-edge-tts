@@ -26,7 +26,45 @@ if TYPE_CHECKING:
     from src.config_manager import ConfigManager
     from src.i18n import I18n
 
+import functools
+
 logger = logging.getLogger(__name__)
+
+
+def log_api_call(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        formatted_args = []
+        for arg in args:
+            if isinstance(arg, str) and len(arg) > 100:
+                formatted_args.append(repr(arg[:100] + "..."))
+            else:
+                formatted_args.append(repr(arg))
+        
+        formatted_kwargs = {}
+        for k, v in kwargs.items():
+            if isinstance(v, str) and len(v) > 100:
+                formatted_kwargs[k] = v[:100] + "..."
+            else:
+                formatted_kwargs[k] = v
+        
+        arg_str = ", ".join(formatted_args)
+        kwarg_str = ", ".join(f"{k}={v!r}" for k, v in formatted_kwargs.items())
+        params = ", ".join(filter(None, [arg_str, kwarg_str]))
+        
+        logger.info("API Call: %s(%s)", func.__name__, params)
+        try:
+            result = func(self, *args, **kwargs)
+            if isinstance(result, str):
+                preview = result[:200] + "..." if len(result) > 200 else result
+                logger.debug("API Return: %s -> %s", func.__name__, preview)
+            else:
+                logger.debug("API Return: %s -> %r", func.__name__, result)
+            return result
+        except Exception as e:
+            logger.error("API Error in %s: %s", func.__name__, e, exc_info=True)
+            raise
+    return wrapper
 
 
 class Api:
@@ -49,6 +87,7 @@ class Api:
         self._i18n = i18n
         self._window: Optional[object] = None
 
+    @log_api_call
     def get_voices(self) -> str:
         """Return JSON-encoded voice list from edge-tts.
 
@@ -62,6 +101,7 @@ class Api:
             logger.error("Failed to get voices: %s", e)
             return json.dumps({"error": str(e)})
 
+    @log_api_call
     def generate_tts(self, text: str, voice: str, rate: int, pitch: int) -> str:
         """Generate TTS audio file, return file path or error.
 
@@ -104,6 +144,7 @@ class Api:
             logger.error("TTS generation failed: %s", e)
             return json.dumps({"error": str(e)})
 
+    @log_api_call
     def preview_tts(self, text: str, voice: str, rate: int, pitch: int) -> str:
         """Generate TTS audio to a temp file for preview playback.
 
@@ -151,6 +192,7 @@ class Api:
             logger.error("TTS preview failed: %s", e)
             return json.dumps({"error": str(e)})
 
+    @log_api_call
     def get_config(self, key: str) -> str:
         """Read a config value.
 
@@ -163,6 +205,7 @@ class Api:
         value = self._config.get(key)
         return json.dumps({"value": value}, ensure_ascii=False)
 
+    @log_api_call
     def set_config(self, key: str, value: object) -> str:
         """Write a config value and persist to disk.
 
@@ -185,6 +228,7 @@ class Api:
             logger.error("Failed to set config %s: %s", key, e)
             return json.dumps({"success": False, "error": str(e)})
 
+    @log_api_call
     def get_translations(self) -> str:
         """Return i18n strings for the current language.
 
@@ -199,6 +243,7 @@ class Api:
             ensure_ascii=False,
         )
 
+    @log_api_call
     def play_audio(self, file_path: str) -> str:
         """Play an audio file via the AudioPlayer bridge.
 
@@ -215,6 +260,7 @@ class Api:
             logger.error("Playback failed: %s", e)
             return json.dumps({"success": False, "error": str(e)})
 
+    @log_api_call
     def stop_audio(self) -> str:
         """Stop current audio playback.
 
@@ -228,6 +274,7 @@ class Api:
             logger.error("Stop playback failed: %s", e)
             return json.dumps({"success": False, "error": str(e)})
 
+    @log_api_call
     def get_audio_url(self, file_path: str) -> str:
         """Convert a local file path to a playable data URL.
 
@@ -253,6 +300,7 @@ class Api:
         b64 = base64.b64encode(data).decode("ascii")
         return f"data:{mime_type};base64,{b64}"
 
+    @log_api_call
     def notify_playback_finished(self) -> None:
         """Called from JS bridge when audio playback ends.
 
@@ -268,6 +316,7 @@ class Api:
         """
         self._audio_player.notify_playback_finished()
 
+    @log_api_call
     def check_update(self) -> str:
         """Check GitHub for a newer release.
 
@@ -292,10 +341,12 @@ class Api:
             logger.debug("check_update failed: %s", e)
             return json.dumps(None)
 
+    @log_api_call
     def set_window(self, window: object) -> None:
         """Set the pywebview window reference for native file dialogs."""
         self._window = window
 
+    @log_api_call
     def get_output_dir(self) -> str:
         """Return the current output directory path.
 
@@ -307,6 +358,7 @@ class Api:
             output_dir = str(Path.home() / "Desktop")
         return json.dumps({"output_dir": output_dir}, ensure_ascii=False)
 
+    @log_api_call
     def select_output_dir(self) -> str:
         """Open a native folder picker dialog and persist the selection.
 

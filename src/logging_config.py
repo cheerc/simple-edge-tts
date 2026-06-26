@@ -13,6 +13,9 @@ import logging
 import logging.handlers
 import os
 import sys
+import threading
+import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -114,16 +117,49 @@ def setup_logging() -> None:
     # Console handler (stderr)
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(formatter)
-    console_handler.setLevel(logging.INFO)  # Console stays at INFO
+    console_handler.setLevel(_get_log_level())  # Console respects env-specific level
 
     root.addHandler(file_handler)
     root.addHandler(console_handler)
 
-    level = _get_log_level()
-    root.setLevel(level)
+    # Root logger level set to DEBUG so file_handler gets all debug logs,
+    # while console_handler filters them according to console_handler.level.
+    root.setLevel(logging.DEBUG)
 
     # Print log path so users can find it even in frozen builds
     print(f"[simple-edge-tts] Log: {log_file}", file=sys.stderr)
 
     logging_config_logger.info("Logging initialised — level=%s, dir=%s",
-                               logging.getLevelName(level), log_dir)
+                               logging.getLevelName(_get_log_level()), log_dir)
+
+
+def start_diagnostic_monitor(interval_seconds: float = 5.0) -> None:
+    """Start a background daemon thread that periodically prints stack traces of all Python threads."""
+    def monitor():
+        logging_config_logger.info("Diagnostic thread monitor started with interval %.1fs", interval_seconds)
+        while True:
+            try:
+                time.sleep(interval_seconds)
+                frames = sys._current_frames()
+                threads = {t.ident: t for t in threading.enumerate()}
+
+                logging_config_logger.info("=== Thread Diagnostic Snapshot ===")
+                logging_config_logger.info("Active threads count: %d", len(threads))
+
+                for thread_id, frame in frames.items():
+                    thread = threads.get(thread_id)
+                    thread_name = thread.name if thread else f"UnknownThread-{thread_id}"
+                    thread_alive = thread.is_alive() if thread else False
+                    thread_daemon = thread.daemon if thread else False
+
+                    tb = "".join(traceback.format_stack(frame))
+                    logging_config_logger.info(
+                        "Thread: %s (ID: %s, Daemon: %s, Alive: %s)\nStack:\n%s",
+                        thread_name, thread_id, thread_daemon, thread_alive, tb
+                    )
+                logging_config_logger.info("==================================")
+            except Exception as e:
+                logging_config_logger.exception("Error in diagnostic thread monitor: %s", e)
+
+    t = threading.Thread(target=monitor, name="diagnostic-monitor", daemon=True)
+    t.start()
