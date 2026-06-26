@@ -34,6 +34,11 @@ export function useTheme() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem(STORAGE_KEY, theme);
+    if (window.pywebview?.api?.set_config) {
+      window.pywebview.api.set_config("theme", theme).catch((err) => {
+        console.error("Failed to sync theme to python config:", err);
+      });
+    }
   }, [theme]);
 
   const toggleTheme = useCallback(() => {

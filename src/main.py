@@ -109,10 +109,11 @@ def main():
     url = _get_frontend_url()
     logger.info("Loading frontend URL: %s", url)
 
-    # Ref: #73 — Set background_color to dark theme bg (#1a1a2e) to prevent
-    # white flash on startup. The app defaults to dark mode (system pref or
-    # localStorage), so matching the dark background eliminates the jarring
-    # white screen during the 2-3s before React mounts.
+    theme = config.get("theme") or "dark"
+    bg_color = "#fafafa" if theme == "light" else "#1a1a2e"
+
+    # Ref: #73 & #108 — Set background_color dynamically based on the last saved
+    # theme to prevent theme flash on startup.
     window = webview.create_window(
         title="Simple Edge TTS",
         url=url,
@@ -120,7 +121,7 @@ def main():
         width=1200,
         height=750,
         min_size=(900, 550),
-        background_color='#1a1a2e',
+        background_color=bg_color,
     )
 
     # Wire AudioPlayer to the webview window for JS bridge communication

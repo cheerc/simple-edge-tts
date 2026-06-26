@@ -15,8 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import aiohttp
-import edge_tts
+# aiohttp and edge_tts are imported lazily inside functions to speed up startup.
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +143,8 @@ async def _fetch_voices_with_timeout() -> list[Any]:
 
     Ref: #95 — aiohttp ClientTimeout + frozen-env TCP connect/SSL hang.
     """
+    import aiohttp
+    import edge_tts
     connector = aiohttp.TCPConnector(force_close=True)
     return await asyncio.wait_for(
         edge_tts.list_voices(connector=connector),
@@ -259,5 +260,6 @@ class TTSEngine:
         rate: str = "+0%",
         pitch: str = "+0Hz",
     ):
+        import edge_tts
         communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
         await communicate.save(output_path)
