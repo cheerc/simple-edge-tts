@@ -32,6 +32,10 @@ _BACKUP_COUNT = 5
 # logging.getLogger(__name__) for their own loggers.
 logging_config_logger = logging.getLogger(__name__)
 
+# Idempotency guard: set to True after first successful setup_logging() call
+# so repeated calls are no-ops regardless of enable_file_logging value.
+_setup_done = False
+
 
 def _get_log_dir() -> Path:
     """Return the platform-appropriate log directory.
@@ -93,15 +97,16 @@ def setup_logging(enable_file_logging: bool | None = None) -> None:
 
     Idempotent: calling this twice will not add duplicate handlers.
     """
-    root = logging.getLogger()
+    global _setup_done
 
-    # Guard against double-init
-    already_set_up = any(
-        isinstance(h, logging.handlers.RotatingFileHandler)
-        for h in root.handlers
-    )
-    if already_set_up:
+    # Guard against double-init: once setup completes (regardless of
+    # enable_file_logging), subsequent calls are no-ops.  Using a
+    # module-level flag instead of checking handler types ensures
+    # idempotency works when file logging is disabled.
+    if _setup_done:
         return
+
+    root = logging.getLogger()
 
     if enable_file_logging is None:
         try:
@@ -147,6 +152,8 @@ def setup_logging(enable_file_logging: bool | None = None) -> None:
 
     # Root logger level set to DEBUG so console/file handlers filter them accordingly.
     root.setLevel(logging.DEBUG)
+
+    _setup_done = True
 
     logging_config_logger.info("Logging initialised — level=%s, dir=%s, file_logging=%s",
                                logging.getLevelName(_get_log_level()), log_dir, enable_file_logging)

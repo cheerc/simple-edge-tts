@@ -25,10 +25,14 @@ def clean_logging_after():
     logger.handlers.clear()
     logger.setLevel(logging.NOTSET)
     logger.propagate = True
-    # Remove any root handlers added by setup_logging
+    # Remove all handlers added by setup_logging — both FileHandlers and
+    # StreamHandlers — so tests don't accumulate handlers across the run.
     root = logging.getLogger()
-    root.handlers = [h for h in root.handlers
-                     if not isinstance(h, logging.FileHandler)]
+    root.handlers.clear()
+    root.setLevel(logging.NOTSET)
+    # Reset idempotency flag so tests don't interfere with each other
+    import src.logging_config
+    src.logging_config._setup_done = False
 
 
 # ---------------------------------------------------------------------------
@@ -288,3 +292,49 @@ class TestSetupLogging:
         file_handlers = [h for h in root.handlers
                          if isinstance(h, logging.handlers.RotatingFileHandler)]
         assert len(file_handlers) == 0
+
+    def test_setup_logging_idempotent_when_file_logging_disabled(
+        self, tmp_path, clean_logging_after
+    ):
+        """Calling setup_logging(enable_file_logging=False) twice must not add
+        duplicate StreamHandlers — only one console handler should exist."""
+        from src.logging_config import setup_logging
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True)
+
+        with patch("src.logging_config._get_log_dir", return_value=log_dir):
+            with patch("src.logging_config.logging_config_logger"):
+                setup_logging(enable_file_logging=False)
+                setup_logging(enable_file_logging=False)
+
+        root = logging.getLogger()
+        # Use strict type() check to exclude pytest's LogCaptureHandler
+        # (a StreamHandler subclass) and RotatingFileHandler.
+        stream_handlers = [h for h in root.handlers
+                           if type(h) is logging.StreamHandler]
+        assert len(stream_handlers) == 1, (
+            f"Expected 1 StreamHandler, got {len(stream_handlers)}: "
+            f"{[type(h).__name__ for h in root.handlers]}"
+        )
+
+    def test_setup_logging_reads_from_config(self, tmp_path, clean_logging_after):
+        """setup_logging() with no arguments reads enable_file_logging from ConfigManager."""
+        from src.logging_config import setup_logging
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True)
+
+        with patch("src.logging_config._get_log_dir", return_value=log_dir):
+            with patch("src.logging_config.logging_config_logger"):
+                # ConfigManager is lazily imported from src.config_manager,
+                # so we patch it at its real home.
+                with patch("src.config_manager.ConfigManager") as MockCM:
+                    mock_instance = MockCM.return_value
+                    mock_instance.get.return_value = True
+                    setup_logging()
+
+        root = logging.getLogger()
+        file_handlers = [h for h in root.handlers
+                         if isinstance(h, logging.handlers.RotatingFileHandler)]
+        assert len(file_handlers) == 1, (
+            f"Expected 1 RotatingFileHandler when config says True, got {len(file_handlers)}"
+        )
