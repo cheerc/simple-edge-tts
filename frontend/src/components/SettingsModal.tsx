@@ -29,6 +29,7 @@ const LANGUAGES = [
 export function SettingsModal({ open, onClose, api, t, language, onLanguageChange }: SettingsModalProps) {
   const [closing, setClosing] = useState(false);
   const [enableLogging, setEnableLogging] = useState(false);
+  const [showRestartDialog, setShowRestartDialog] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -49,6 +50,7 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
       if (api.ready) {
         try {
           await api.setConfig("enable_file_logging", checked);
+          setShowRestartDialog(true);
         } catch (e) {
           console.error("Failed to save config", e);
         }
@@ -124,6 +126,7 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
         aria-modal="true"
         aria-label="Settings"
         style={{
+          position: "relative",
           width: 480,
           maxWidth: "90vw",
           maxHeight: "80vh",
@@ -348,6 +351,74 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
             </div>
           </div>
         </div>
+
+        {/* Restart Required Dialog overlay */}
+        {showRestartDialog && (
+          <div
+            className="absolute inset-0 flex items-center justify-center animate-toast-in"
+            style={{
+              background: "var(--color-overlay, rgba(0, 0, 0, 0.4))",
+              backdropFilter: "blur(2px)",
+              borderRadius: "var(--radius-xl)",
+              zIndex: 50,
+              padding: "var(--space-6)",
+            }}
+          >
+            <div
+              style={{
+                width: 320,
+                background: "var(--color-surface)",
+                borderRadius: "var(--radius-lg)",
+                boxShadow: "var(--shadow-elevated)",
+                padding: "var(--space-5)",
+                textAlign: "center",
+              }}
+            >
+              <h4
+                style={{
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: "var(--color-text-primary)",
+                  margin: "0 0 var(--space-2) 0",
+                }}
+              >
+                {t("restart_required_title")}
+              </h4>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "var(--color-text-secondary)",
+                  margin: "0 0 var(--space-4) 0",
+                  lineHeight: 1.4,
+                }}
+              >
+                {t("restart_required_desc")}
+              </p>
+              <button
+                onClick={() => setShowRestartDialog(false)}
+                className="w-full flex items-center justify-center rounded-md"
+                style={{
+                  height: 36,
+                  background: "var(--primary)",
+                  color: "var(--primary-foreground)",
+                  border: "none",
+                  fontWeight: 500,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  transition: "background-color var(--duration-fast) var(--ease-default)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--color-accent-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--primary)";
+                }}
+              >
+                {t("ok")}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Enter animation keyframes */}
