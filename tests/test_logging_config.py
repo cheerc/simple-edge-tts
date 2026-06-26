@@ -69,50 +69,31 @@ class TestGetLogDir:
         expected = fake_appdata / "simple-edge-tts" / "logs"
         assert result == expected
 
-    def test_windows_frozen_onedir_log_dir(self):
-        """On Windows when frozen in onedir mode and directory is writable, log dir is the directory of the executable."""
+    def test_windows_frozen_writable_log_dir(self):
+        """On Windows when frozen and the directory is writable, log dir is the directory of the executable."""
         from src.logging_config import _get_log_dir
         fake_exe = "D:/Program Files/simple-edge-tts/simple-edge-tts.exe"
-        fake_meipass = "D:/Program Files/simple-edge-tts/_internal"
         with patch.object(sys, "platform", "win32"):
             with patch.object(sys, "frozen", True, create=True):
                 with patch.object(sys, "executable", fake_exe):
-                    with patch.object(sys, "_MEIPASS", fake_meipass, create=True):
-                        with patch("pathlib.Path.touch") as mock_touch, patch("pathlib.Path.unlink") as mock_unlink:
-                            result = _get_log_dir()
-                            mock_touch.assert_called_once()
-                            mock_unlink.assert_called_once()
+                    with patch("pathlib.Path.touch") as mock_touch, patch("pathlib.Path.unlink") as mock_unlink:
+                        result = _get_log_dir()
+                        mock_touch.assert_called_once()
+                        mock_unlink.assert_called_once()
         expected = Path("D:/Program Files/simple-edge-tts")
         assert result == expected
 
-    def test_windows_frozen_onefile_log_dir(self):
-        """On Windows when frozen in onefile mode, log dir falls back to LOCALAPPDATA."""
+    def test_windows_frozen_readonly_fallback(self):
+        """On Windows when frozen but the directory is not writable, log dir falls back to LOCALAPPDATA."""
         from src.logging_config import _get_log_dir
         fake_exe = "D:/Program Files/simple-edge-tts/simple-edge-tts.exe"
-        fake_meipass = "C:/Users/test/AppData/Local/Temp/_MEI12345"
         fake_localappdata = Path(r"C:\Users\test\AppData\Local")
         with patch.object(sys, "platform", "win32"):
             with patch.object(sys, "frozen", True, create=True):
                 with patch.object(sys, "executable", fake_exe):
-                    with patch.object(sys, "_MEIPASS", fake_meipass, create=True):
-                        with patch.dict("os.environ", {"LOCALAPPDATA": str(fake_localappdata)}):
+                    with patch.dict("os.environ", {"LOCALAPPDATA": str(fake_localappdata)}):
+                        with patch("pathlib.Path.touch", side_effect=PermissionError()):
                             result = _get_log_dir()
-        expected = fake_localappdata / "simple-edge-tts" / "logs"
-        assert result == expected
-
-    def test_windows_frozen_onedir_readonly_fallback(self):
-        """On Windows when frozen in onedir mode but directory is not writable, log dir falls back to LOCALAPPDATA."""
-        from src.logging_config import _get_log_dir
-        fake_exe = "D:/Program Files/simple-edge-tts/simple-edge-tts.exe"
-        fake_meipass = "D:/Program Files/simple-edge-tts/_internal"
-        fake_localappdata = Path(r"C:\Users\test\AppData\Local")
-        with patch.object(sys, "platform", "win32"):
-            with patch.object(sys, "frozen", True, create=True):
-                with patch.object(sys, "executable", fake_exe):
-                    with patch.object(sys, "_MEIPASS", fake_meipass, create=True):
-                        with patch.dict("os.environ", {"LOCALAPPDATA": str(fake_localappdata)}):
-                            with patch("pathlib.Path.touch", side_effect=PermissionError()):
-                                result = _get_log_dir()
         expected = fake_localappdata / "simple-edge-tts" / "logs"
         assert result == expected
 

@@ -48,19 +48,12 @@ def _get_log_dir() -> Path:
         if getattr(sys, "frozen", False):
             exe_dir = Path(sys.executable).parent
             try:
-                meipass = Path(sys._MEIPASS)  # type: ignore[attr-defined]
-                is_onefile = not meipass.is_relative_to(exe_dir)
+                test_file = exe_dir / ".log_write_test"
+                test_file.touch()
+                test_file.unlink()
+                return exe_dir
             except Exception:
-                is_onefile = True
-
-            if not is_onefile:
-                try:
-                    test_file = exe_dir / ".log_write_test"
-                    test_file.touch()
-                    test_file.unlink()
-                    return exe_dir
-                except Exception:
-                    pass
+                pass
 
         base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA", "")
         if not base:
