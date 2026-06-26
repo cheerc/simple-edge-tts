@@ -89,10 +89,15 @@ do_build() {
     # Build with PyInstaller
     info "Building ${APP_NAME} with PyInstaller..."
 
+    local dir_mode="--onedir"
+    if [ "$PLATFORM" = "Windows" ]; then
+        dir_mode="--onefile"
+    fi
+
     local pyinstaller_args=(
         --name "$APP_NAME"
         --windowed
-        --onedir
+        "$dir_mode"
         --noupx
         --add-data "${RESOURCES_DIR}${sep}${RESOURCES_DIR}"
         --add-data "src/static${sep}src/static"
@@ -183,7 +188,7 @@ do_build() {
         echo "  App: dist/${APP_NAME}.app"
         echo "  DMG: dist/${APP_NAME}.dmg"
     elif [ "$PLATFORM" = "Windows" ]; then
-        echo "  Exe: dist/${APP_NAME}/${APP_NAME}.exe"
+        echo "  Exe: dist/${APP_NAME}.exe"
     else
         echo "  Binary: dist/${APP_NAME}/${APP_NAME}"
     fi
