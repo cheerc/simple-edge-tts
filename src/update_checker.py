@@ -36,7 +36,7 @@ class UpdateChecker:
     def _check(self) -> dict | None:
         """Fetch latest release info. Returns dict or None."""
         try:
-            req = Request(GITHUB_API_URL, headers={"User-Agent": "simple-edge-tts"})
+            req = Request(GITHUB_API_URL, headers={"User-Agent": f"simple-edge-tts/{self.current_version}"})
             with urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read())
             tag = data.get("tag_name", "")

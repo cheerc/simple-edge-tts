@@ -81,7 +81,7 @@ def _get_loop() -> asyncio.AbstractEventLoop:
     return _loop
 
 
-def run_async(coro):
+def run_async(coro) -> Any:
     """Run an async coroutine on the persistent event loop.
 
     Thread-safe. Blocks until the coroutine completes or times out.
@@ -259,7 +259,7 @@ class TTSEngine:
         output_path: str,
         rate: str = "+0%",
         pitch: str = "+0Hz",
-    ):
+    ) -> None:
         import edge_tts
         communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
         await communicate.save(output_path)
