@@ -19,6 +19,7 @@ import tempfile
 import tempfile as _tempfile_module  # aliased for _is_path_within_allowed_dirs
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
+from xml.sax.saxutils import escape as _xml_escape
 
 from src.tts_engine import TTSEngine, format_rate, format_pitch, make_output_filename, run_async
 
@@ -125,9 +126,11 @@ class Api:
             rate_str = format_rate(rate)
             pitch_str = format_pitch(pitch)
 
+            sanitized_text = self._sanitize_tts_text(text)
+
             run_async(
                 self._engine.generate(
-                    text=text,
+                    text=sanitized_text,
                     voice=voice,
                     output_path=str(output_path),
                     rate=rate_str,
@@ -173,12 +176,14 @@ class Api:
             tmp_path = tmp.name
             tmp.close()
 
+            sanitized_text = self._sanitize_tts_text(text)
+
             rate_str = format_rate(rate)
             pitch_str = format_pitch(pitch)
 
             run_async(
                 self._engine.generate(
-                    text=text,
+                    text=sanitized_text,
                     voice=voice,
                     output_path=tmp_path,
                     rate=rate_str,
@@ -376,6 +381,18 @@ class Api:
             resolved == allowed_dir or resolved.is_relative_to(allowed_dir)
             for allowed_dir in allowed
         )
+
+    @staticmethod
+    def _sanitize_tts_text(text: str) -> str:
+        """Escape XML/SSML special characters in TTS input text.
+
+        Prevents unintended SSML tag interpretation by the Azure
+        TTS backend (Issue #120). The escaped entities are spoken
+        as literal characters by the TTS engine.
+
+        Escaped characters: < → &lt;, > → &gt;, & → &amp;
+        """
+        return _xml_escape(text)
 
     @log_api_call
     def get_output_dir(self) -> str:

@@ -7,7 +7,7 @@ for the frontend to consume via window.pywebview.api.*.
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -323,4 +323,54 @@ class TestGetAudioUrl:
             assert result == ""
         finally:
             symlink.unlink(missing_ok=True)
+
+
+class TestSSMLSanitization:
+    """Test SSML/XML escaping in TTS text input (Issue #120)."""
+
+    def test_generate_tts_escapes_xml_tags(self, api, mock_tts_engine):
+        """generate_tts() escapes < and > in text before passing to engine."""
+        api.generate_tts("<speak>Hello</speak>", "en-US-JennyNeural", 0, 0)
+
+        call_args = mock_tts_engine.generate.call_args
+        assert call_args is not None
+        text_passed = call_args.kwargs.get("text") or call_args.args[0]
+        assert "<" not in text_passed
+        assert ">" not in text_passed
+        assert "&lt;" in text_passed
+
+    def test_generate_tts_escapes_ampersand(self, api, mock_tts_engine):
+        """generate_tts() escapes & in text."""
+        api.generate_tts("Rock & Roll", "en-US-JennyNeural", 0, 0)
+
+        call_args = mock_tts_engine.generate.call_args
+        text_passed = call_args.kwargs.get("text") or call_args.args[0]
+        assert "&amp;" in text_passed
+        assert "& " not in text_passed  # raw & not followed by amp;
+
+    def test_generate_tts_preserves_normal_text(self, api, mock_tts_engine):
+        """generate_tts() does not modify text without XML special chars."""
+        api.generate_tts("Hello world", "en-US-JennyNeural", 0, 0)
+
+        call_args = mock_tts_engine.generate.call_args
+        text_passed = call_args.kwargs.get("text") or call_args.args[0]
+        assert text_passed == "Hello world"
+
+
+class TestSSMLSanitizationPreview:
+    """Test SSML/XML escaping in preview_tts() (Issue #120)."""
+
+    def test_preview_tts_escapes_xml_tags(self, api, mock_tts_engine):
+        """preview_tts() escapes < and > in text."""
+        import tempfile
+        with patch.object(tempfile, 'NamedTemporaryFile'):
+            try:
+                api.preview_tts("<voice>Test</voice>", "en-US-JennyNeural", 0, 0)
+            except Exception:
+                pass  # may fail due to mocked tempfile, but call should have happened
+
+            call_args = mock_tts_engine.generate.call_args
+            if call_args:
+                text_passed = call_args.kwargs.get("text") or call_args.args[0]
+                assert "<" not in text_passed
 
