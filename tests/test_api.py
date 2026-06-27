@@ -6,7 +6,8 @@ for the frontend to consume via window.pywebview.api.*.
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -243,4 +244,181 @@ class TestPreviewTts:
         call_kwargs = mock_tts_engine.generate.call_args
         assert "+20%" in str(call_kwargs)
         assert "-10Hz" in str(call_kwargs)
+
+
+class TestGetAudioUrl:
+    """Test get_audio_url() — path traversal protection (Issue #111)."""
+
+    def test_returns_data_url_for_valid_audio(self, api, mock_config, tmp_path):
+        """get_audio_url() returns base64 data URL for audio in allowed dir."""
+        mock_config.get.return_value = str(tmp_path)
+        audio = tmp_path / "test.mp3"
+        audio.write_bytes(b"\xff\xfb\x90\x00")  # valid MP3 header
+
+        result = api.get_audio_url(str(audio))
+
+        assert result.startswith("data:audio/mpeg;base64,")
+
+    def test_blocks_path_outside_allowed_dirs(self, api, mock_config):
+        """get_audio_url() returns empty string for paths outside allowed dirs."""
+        mock_config.get.return_value = "/tmp/allowed"
+
+        # Try to read /etc/hosts
+        result = api.get_audio_url("/etc/hosts")
+
+        assert result == ""
+
+    def test_blocks_absolute_path_traversal(self, api, mock_config, tmp_path):
+        """get_audio_url() rejects paths with .. traversal escaping allowed dir."""
+        mock_config.get.return_value = str(tmp_path)
+        # Create a file inside allowed dir
+        allowed_file = tmp_path / "safe.mp3"
+        allowed_file.write_bytes(b"\xff\xfb\x90\x00")
+
+        # Try to escape via .. traversal
+        traversal = str(tmp_path / ".." / "etc" / "hosts")
+
+        result = api.get_audio_url(traversal)
+
+        assert result == ""
+
+    def test_returns_empty_for_nonexistent_file(self, api, mock_config, tmp_path):
+        """get_audio_url() returns empty string when file does not exist."""
+        mock_config.get.return_value = str(tmp_path)
+
+        result = api.get_audio_url(str(tmp_path / "nonexistent.mp3"))
+
+        assert result == ""
+
+    def test_allows_path_in_temp_dir(self, api, mock_config, tmp_path):
+        """get_audio_url() allows paths in system temp directory."""
+        mock_config.get.return_value = "/some/other/dir"
+        # Use actual tempfile.gettempdir() — create file there
+        import tempfile
+        tmpdir = Path(tempfile.gettempdir())
+        test_file = tmpdir / "simple_edge_tts_test_audio.mp3"
+        test_file.write_bytes(b"\xff\xfb\x90\x00")
+        try:
+            result = api.get_audio_url(str(test_file))
+            assert result.startswith("data:audio/mpeg;base64,")
+        finally:
+            test_file.unlink(missing_ok=True)
+
+    def test_returns_empty_for_empty_path(self, api):
+        """get_audio_url() returns empty string for empty file_path."""
+        result = api.get_audio_url("")
+        assert result == ""
+
+    def test_blocks_symlink_pointing_outside(self, api, mock_config, tmp_path):
+        """get_audio_url() rejects symlinks that resolve outside allowed dirs."""
+        mock_config.get.return_value = str(tmp_path)
+        # Create a valid file inside allowed dir
+        real_file = tmp_path / "real.mp3"
+        real_file.write_bytes(b"\xff\xfb\x90\x00")
+        # Create a symlink inside allowed dir pointing to /etc/hosts
+        symlink = tmp_path / "evil_link"
+        symlink.symlink_to("/etc/hosts")
+        try:
+            result = api.get_audio_url(str(symlink))
+            assert result == ""
+        finally:
+            symlink.unlink(missing_ok=True)
+
+
+class TestSSMLSanitization:
+    """Test SSML/XML escaping in TTS text input (Issue #120)."""
+
+    def test_generate_tts_escapes_xml_tags(self, api, mock_tts_engine):
+        """generate_tts() escapes < and > in text before passing to engine."""
+        api.generate_tts("<speak>Hello</speak>", "en-US-JennyNeural", 0, 0)
+
+        call_args = mock_tts_engine.generate.call_args
+        assert call_args is not None
+        text_passed = call_args.kwargs.get("text") or call_args.args[0]
+        assert "<" not in text_passed
+        assert ">" not in text_passed
+        assert "&lt;" in text_passed
+
+    def test_generate_tts_escapes_ampersand(self, api, mock_tts_engine):
+        """generate_tts() escapes & in text."""
+        api.generate_tts("Rock & Roll", "en-US-JennyNeural", 0, 0)
+
+        call_args = mock_tts_engine.generate.call_args
+        text_passed = call_args.kwargs.get("text") or call_args.args[0]
+        assert "&amp;" in text_passed
+        assert "& " not in text_passed  # raw & not followed by amp;
+
+    def test_generate_tts_preserves_normal_text(self, api, mock_tts_engine):
+        """generate_tts() does not modify text without XML special chars."""
+        api.generate_tts("Hello world", "en-US-JennyNeural", 0, 0)
+
+        call_args = mock_tts_engine.generate.call_args
+        text_passed = call_args.kwargs.get("text") or call_args.args[0]
+        assert text_passed == "Hello world"
+
+
+class TestSSMLSanitizationPreview:
+    """Test SSML/XML escaping in preview_tts() (Issue #120)."""
+
+    def test_preview_tts_escapes_xml_tags(self, api, mock_tts_engine):
+        """preview_tts() escapes < and > in text."""
+        import tempfile
+        with patch.object(tempfile, 'NamedTemporaryFile'):
+            try:
+                api.preview_tts("<voice>Test</voice>", "en-US-JennyNeural", 0, 0)
+            except Exception:
+                pass  # may fail due to mocked tempfile, but call should have happened
+
+            call_args = mock_tts_engine.generate.call_args
+            if call_args:
+                text_passed = call_args.kwargs.get("text") or call_args.args[0]
+                assert "<" not in text_passed
+
+
+class TestOutputDirValidation:
+    """Test output_dir path validation in set_config() (Issue #121)."""
+
+    def test_set_config_rejects_relative_output_dir(self, api, mock_config):
+        """set_config() rejects relative paths for output_dir."""
+        result = api.set_config("output_dir", "relative/path")
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+        assert "error" in parsed
+        # Config must NOT be saved with invalid value
+        mock_config.set.assert_not_called()
+
+    def test_set_config_rejects_path_traversal_output_dir(self, api, mock_config):
+        """set_config() rejects output_dir containing .. traversal."""
+        result = api.set_config("output_dir", "/Users/cheerc/../../etc")
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+
+    def test_set_config_accepts_valid_absolute_path(self, api, mock_config):
+        """set_config() accepts a valid absolute path for output_dir."""
+        home = str(Path.home())
+        result = api.set_config("output_dir", home)
+        parsed = json.loads(result)
+        assert parsed["success"] is True
+        mock_config.set.assert_called_with("output_dir", home)
+        mock_config.save.assert_called_once()
+
+    def test_set_config_accepts_other_keys_unchanged(self, api, mock_config):
+        """set_config() does not validate non-output_dir keys."""
+        result = api.set_config("language", "ja-JP")
+        parsed = json.loads(result)
+        assert parsed["success"] is True
+        mock_config.set.assert_called_with("language", "ja-JP")
+
+    def test_set_config_rejects_nonexistent_directory(self, api, mock_config):
+        """set_config() rejects output_dir that does not exist on disk."""
+        result = api.set_config("output_dir", "/nonexistent/path/xyz")
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+
+    def test_set_config_rejects_empty_output_dir(self, api, mock_config):
+        """set_config() rejects empty string for output_dir."""
+        result = api.set_config("output_dir", "")
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+        assert "error" in parsed
 

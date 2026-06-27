@@ -16,8 +16,10 @@ import json
 import logging
 import mimetypes
 import tempfile
+import tempfile as _tempfile_module  # aliased for _is_path_within_allowed_dirs
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
+from xml.sax.saxutils import escape as _xml_escape
 
 from src.tts_engine import TTSEngine, format_rate, format_pitch, make_output_filename, run_async
 
@@ -124,9 +126,11 @@ class Api:
             rate_str = format_rate(rate)
             pitch_str = format_pitch(pitch)
 
+            sanitized_text = self._sanitize_tts_text(text)
+
             run_async(
                 self._engine.generate(
-                    text=text,
+                    text=sanitized_text,
                     voice=voice,
                     output_path=str(output_path),
                     rate=rate_str,
@@ -172,12 +176,14 @@ class Api:
             tmp_path = tmp.name
             tmp.close()
 
+            sanitized_text = self._sanitize_tts_text(text)
+
             rate_str = format_rate(rate)
             pitch_str = format_pitch(pitch)
 
             run_async(
                 self._engine.generate(
-                    text=text,
+                    text=sanitized_text,
                     voice=voice,
                     output_path=tmp_path,
                     rate=rate_str,
@@ -215,6 +221,33 @@ class Api:
             JSON with 'success' boolean.
         """
         try:
+            if key == "output_dir":
+                if not isinstance(value, str):
+                    return json.dumps({
+                        "success": False,
+                        "error": "output_dir must be a string",
+                    })
+                path = Path(value).resolve()
+                # Reject relative paths
+                if not Path(value).is_absolute():
+                    return json.dumps({
+                        "success": False,
+                        "error": "output_dir must be an absolute path",
+                    })
+                # Reject path traversal — resolved path must be under HOME
+                home = Path.home().resolve()
+                if not path.is_relative_to(home):
+                    return json.dumps({
+                        "success": False,
+                        "error": "output_dir must be within your home directory",
+                    })
+                # Must exist as a directory
+                if not path.is_dir():
+                    return json.dumps({
+                        "success": False,
+                        "error": f"Directory does not exist: {value}",
+                    })
+
             self._config.set(key, value)
             self._config.save()
             # When language changes, update the I18n instance so
@@ -281,6 +314,10 @@ class Api:
         restriction. TTS preview files are typically <500KB so overhead
         is acceptable.
 
+        Only files within the configured output directory or the
+        system temporary directory are accessible — arbitrary file
+        paths are rejected (Issue #111).
+
         Ref: #63 — audio bridge needs URL resolution for HTMLAudioElement.
 
         Args:
@@ -288,9 +325,11 @@ class Api:
 
         Returns:
             A data:audio/...;base64,... URL string, or empty string if
-            file does not exist.
+            file does not exist or is outside allowed directories.
         """
         path = Path(file_path).resolve()
+        if not self._is_path_within_allowed_dirs(path):
+            return ""
         if not path.exists():
             return ""
         mime_type = mimetypes.guess_type(str(path))[0] or "audio/mpeg"
@@ -350,6 +389,37 @@ class Api:
         if output_dir is None:
             output_dir = str(Path.home() / "Desktop")
         return output_dir
+
+    def _is_path_within_allowed_dirs(self, path: Path) -> bool:
+        """Check that a resolved path is within an allowed directory.
+
+        Allowed directories: the user's configured output_dir and
+        the system temporary directory (used by preview_tts()).
+
+        Returns:
+            True if the path is inside an allowed directory.
+        """
+        allowed = [
+            Path(self._get_effective_output_dir()).resolve(),
+            Path(_tempfile_module.gettempdir()).resolve(),
+        ]
+        resolved = path.resolve()
+        return any(
+            resolved == allowed_dir or resolved.is_relative_to(allowed_dir)
+            for allowed_dir in allowed
+        )
+
+    @staticmethod
+    def _sanitize_tts_text(text: str) -> str:
+        """Escape XML/SSML special characters in TTS input text.
+
+        Prevents unintended SSML tag interpretation by the Azure
+        TTS backend (Issue #120). The escaped entities are spoken
+        as literal characters by the TTS engine.
+
+        Escaped characters: < → &lt;, > → &gt;, & → &amp;
+        """
+        return _xml_escape(text)
 
     @log_api_call
     def get_output_dir(self) -> str:
