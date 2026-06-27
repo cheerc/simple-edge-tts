@@ -47,7 +47,7 @@ class AudioPlayer:
 
     def __init__(self, parent: object = None) -> None:
         self._state = PlayerState.IDLE
-        self._window: Optional[object] = None
+        self._window: Optional[Any] = None
         self._current_file: Optional[Path] = None
         self._shutting_down = False
         self.state_changed = SimpleSignal()
@@ -126,6 +126,6 @@ class AudioPlayer:
             return
         if self._window is not None:
             try:
-                self._window.evaluate_js(js_code)  # type: ignore[union-attr]
+                self._window.evaluate_js(js_code)
             except Exception:
                 logger.warning("evaluate_js failed", exc_info=True)

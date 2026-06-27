@@ -17,7 +17,7 @@ import logging
 import mimetypes
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from src.tts_engine import TTSEngine, format_rate, format_pitch, make_output_filename, run_async
 
@@ -85,7 +85,7 @@ class Api:
         self._config = config
         self._audio_player = audio_player
         self._i18n = i18n
-        self._window: Optional[object] = None
+        self._window: Optional[Any] = None
 
     @log_api_call
     def get_voices(self) -> str:
