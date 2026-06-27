@@ -221,6 +221,33 @@ class Api:
             JSON with 'success' boolean.
         """
         try:
+            if key == "output_dir":
+                if not isinstance(value, str):
+                    return json.dumps({
+                        "success": False,
+                        "error": "output_dir must be a string",
+                    })
+                path = Path(value).resolve()
+                # Reject relative paths
+                if not Path(value).is_absolute():
+                    return json.dumps({
+                        "success": False,
+                        "error": "output_dir must be an absolute path",
+                    })
+                # Reject path traversal — resolved path must be under HOME
+                home = Path.home().resolve()
+                if not path.is_relative_to(home):
+                    return json.dumps({
+                        "success": False,
+                        "error": "output_dir must be within your home directory",
+                    })
+                # Must exist as a directory
+                if not path.is_dir():
+                    return json.dumps({
+                        "success": False,
+                        "error": f"Directory does not exist: {value}",
+                    })
+
             self._config.set(key, value)
             self._config.save()
             # When language changes, update the I18n instance so

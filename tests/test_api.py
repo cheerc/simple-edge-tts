@@ -374,3 +374,50 @@ class TestSSMLSanitizationPreview:
                 text_passed = call_args.kwargs.get("text") or call_args.args[0]
                 assert "<" not in text_passed
 
+
+class TestOutputDirValidation:
+    """Test output_dir path validation in set_config() (Issue #121)."""
+
+    def test_set_config_rejects_relative_output_dir(self, api, mock_config):
+        """set_config() rejects relative paths for output_dir."""
+        result = api.set_config("output_dir", "relative/path")
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+        assert "error" in parsed
+        # Config must NOT be saved with invalid value
+        mock_config.set.assert_not_called()
+
+    def test_set_config_rejects_path_traversal_output_dir(self, api, mock_config):
+        """set_config() rejects output_dir containing .. traversal."""
+        result = api.set_config("output_dir", "/Users/cheerc/../../etc")
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+
+    def test_set_config_accepts_valid_absolute_path(self, api, mock_config):
+        """set_config() accepts a valid absolute path for output_dir."""
+        result = api.set_config("output_dir", "/Users/cheerc/Desktop")
+        parsed = json.loads(result)
+        assert parsed["success"] is True
+        mock_config.set.assert_called_with("output_dir", "/Users/cheerc/Desktop")
+        mock_config.save.assert_called_once()
+
+    def test_set_config_accepts_other_keys_unchanged(self, api, mock_config):
+        """set_config() does not validate non-output_dir keys."""
+        result = api.set_config("language", "ja-JP")
+        parsed = json.loads(result)
+        assert parsed["success"] is True
+        mock_config.set.assert_called_with("language", "ja-JP")
+
+    def test_set_config_rejects_nonexistent_directory(self, api, mock_config):
+        """set_config() rejects output_dir that does not exist on disk."""
+        result = api.set_config("output_dir", "/nonexistent/path/xyz")
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+
+    def test_set_config_rejects_empty_output_dir(self, api, mock_config):
+        """set_config() rejects empty string for output_dir."""
+        result = api.set_config("output_dir", "")
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+        assert "error" in parsed
+
