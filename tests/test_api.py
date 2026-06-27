@@ -6,6 +6,7 @@ for the frontend to consume via window.pywebview.api.*.
 """
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -243,4 +244,83 @@ class TestPreviewTts:
         call_kwargs = mock_tts_engine.generate.call_args
         assert "+20%" in str(call_kwargs)
         assert "-10Hz" in str(call_kwargs)
+
+
+class TestGetAudioUrl:
+    """Test get_audio_url() — path traversal protection (Issue #111)."""
+
+    def test_returns_data_url_for_valid_audio(self, api, mock_config, tmp_path):
+        """get_audio_url() returns base64 data URL for audio in allowed dir."""
+        mock_config.get.return_value = str(tmp_path)
+        audio = tmp_path / "test.mp3"
+        audio.write_bytes(b"\xff\xfb\x90\x00")  # valid MP3 header
+
+        result = api.get_audio_url(str(audio))
+
+        assert result.startswith("data:audio/mpeg;base64,")
+
+    def test_blocks_path_outside_allowed_dirs(self, api, mock_config):
+        """get_audio_url() returns empty string for paths outside allowed dirs."""
+        mock_config.get.return_value = "/tmp/allowed"
+
+        # Try to read /etc/hosts
+        result = api.get_audio_url("/etc/hosts")
+
+        assert result == ""
+
+    def test_blocks_absolute_path_traversal(self, api, mock_config, tmp_path):
+        """get_audio_url() rejects paths with .. traversal escaping allowed dir."""
+        mock_config.get.return_value = str(tmp_path)
+        # Create a file inside allowed dir
+        allowed_file = tmp_path / "safe.mp3"
+        allowed_file.write_bytes(b"\xff\xfb\x90\x00")
+
+        # Try to escape via .. traversal
+        traversal = str(tmp_path / ".." / "etc" / "hosts")
+
+        result = api.get_audio_url(traversal)
+
+        assert result == ""
+
+    def test_returns_empty_for_nonexistent_file(self, api, mock_config, tmp_path):
+        """get_audio_url() returns empty string when file does not exist."""
+        mock_config.get.return_value = str(tmp_path)
+
+        result = api.get_audio_url(str(tmp_path / "nonexistent.mp3"))
+
+        assert result == ""
+
+    def test_allows_path_in_temp_dir(self, api, mock_config, tmp_path):
+        """get_audio_url() allows paths in system temp directory."""
+        mock_config.get.return_value = "/some/other/dir"
+        # Use actual tempfile.gettempdir() — create file there
+        import tempfile
+        tmpdir = Path(tempfile.gettempdir())
+        test_file = tmpdir / "simple_edge_tts_test_audio.mp3"
+        test_file.write_bytes(b"\xff\xfb\x90\x00")
+        try:
+            result = api.get_audio_url(str(test_file))
+            assert result.startswith("data:audio/mpeg;base64,")
+        finally:
+            test_file.unlink(missing_ok=True)
+
+    def test_returns_empty_for_empty_path(self, api):
+        """get_audio_url() returns empty string for empty file_path."""
+        result = api.get_audio_url("")
+        assert result == ""
+
+    def test_blocks_symlink_pointing_outside(self, api, mock_config, tmp_path):
+        """get_audio_url() rejects symlinks that resolve outside allowed dirs."""
+        mock_config.get.return_value = str(tmp_path)
+        # Create a valid file inside allowed dir
+        real_file = tmp_path / "real.mp3"
+        real_file.write_bytes(b"\xff\xfb\x90\x00")
+        # Create a symlink inside allowed dir pointing to /etc/hosts
+        symlink = tmp_path / "evil_link"
+        symlink.symlink_to("/etc/hosts")
+        try:
+            result = api.get_audio_url(str(symlink))
+            assert result == ""
+        finally:
+            symlink.unlink(missing_ok=True)
 

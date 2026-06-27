@@ -16,6 +16,7 @@ import json
 import logging
 import mimetypes
 import tempfile
+import tempfile as _tempfile_module  # aliased for _is_path_within_allowed_dirs
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -281,6 +282,10 @@ class Api:
         restriction. TTS preview files are typically <500KB so overhead
         is acceptable.
 
+        Only files within the configured output directory or the
+        system temporary directory are accessible — arbitrary file
+        paths are rejected (Issue #111).
+
         Ref: #63 — audio bridge needs URL resolution for HTMLAudioElement.
 
         Args:
@@ -288,9 +293,11 @@ class Api:
 
         Returns:
             A data:audio/...;base64,... URL string, or empty string if
-            file does not exist.
+            file does not exist or is outside allowed directories.
         """
         path = Path(file_path).resolve()
+        if not self._is_path_within_allowed_dirs(path):
+            return ""
         if not path.exists():
             return ""
         mime_type = mimetypes.guess_type(str(path))[0] or "audio/mpeg"
@@ -350,6 +357,25 @@ class Api:
         if output_dir is None:
             output_dir = str(Path.home() / "Desktop")
         return output_dir
+
+    def _is_path_within_allowed_dirs(self, path: Path) -> bool:
+        """Check that a resolved path is within an allowed directory.
+
+        Allowed directories: the user's configured output_dir and
+        the system temporary directory (used by preview_tts()).
+
+        Returns:
+            True if the path is inside an allowed directory.
+        """
+        allowed = [
+            Path(self._get_effective_output_dir()).resolve(),
+            Path(_tempfile_module.gettempdir()).resolve(),
+        ]
+        resolved = path.resolve()
+        return any(
+            resolved == allowed_dir or resolved.is_relative_to(allowed_dir)
+            for allowed_dir in allowed
+        )
 
     @log_api_call
     def get_output_dir(self) -> str:
