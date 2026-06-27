@@ -68,7 +68,7 @@ class SystemTrayManager:
         self._window = window
         self._on_quit = on_quit
         self._visible = True
-        self._icon = None
+        self._icon: Optional[Any] = None
         self._lock = threading.Lock()
 
     def start(self) -> None:
