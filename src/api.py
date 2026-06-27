@@ -358,9 +358,7 @@ class Api:
         Returns:
             JSON with 'output_dir' field.
         """
-        output_dir = self._config.get("output_dir")
-        if output_dir is None:
-            output_dir = str(Path.home() / "Desktop")
+        output_dir = self._get_effective_output_dir()
         return json.dumps({"output_dir": output_dir}, ensure_ascii=False)
 
     @log_api_call
