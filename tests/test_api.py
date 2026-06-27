@@ -395,10 +395,11 @@ class TestOutputDirValidation:
 
     def test_set_config_accepts_valid_absolute_path(self, api, mock_config):
         """set_config() accepts a valid absolute path for output_dir."""
-        result = api.set_config("output_dir", "/Users/cheerc/Desktop")
+        home = str(Path.home())
+        result = api.set_config("output_dir", home)
         parsed = json.loads(result)
         assert parsed["success"] is True
-        mock_config.set.assert_called_with("output_dir", "/Users/cheerc/Desktop")
+        mock_config.set.assert_called_with("output_dir", home)
         mock_config.save.assert_called_once()
 
     def test_set_config_accepts_other_keys_unchanged(self, api, mock_config):
