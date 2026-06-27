@@ -153,9 +153,9 @@ def _is_path_within_allowed_dirs(self, path: Path) -> bool:
         Path(_tempfile_module.gettempdir()).resolve(),
     ]
     resolved = path.resolve()
+    # Use is_relative_to() for robust boundary check (Python 3.9+)
     return any(
-        str(resolved).startswith(str(allowed_dir) + "/")
-        or str(resolved) == str(allowed_dir)
+        resolved == allowed_dir or resolved.is_relative_to(allowed_dir)
         for allowed_dir in allowed
     )
 ```
