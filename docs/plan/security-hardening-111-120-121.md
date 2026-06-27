@@ -104,10 +104,31 @@ class TestGetAudioUrl:
             test_file.unlink(missing_ok=True)
 ```
 
+    def test_returns_empty_for_empty_path(self, api):
+        """get_audio_url() returns empty string for empty file_path."""
+        result = api.get_audio_url("")
+        assert result == ""
+
+    def test_blocks_symlink_pointing_outside(self, api, mock_config, tmp_path):
+        """get_audio_url() rejects symlinks that resolve outside allowed dirs."""
+        mock_config.get.return_value = str(tmp_path)
+        # Create a valid file inside allowed dir
+        real_file = tmp_path / "real.mp3"
+        real_file.write_bytes(b"\xff\xfb\x90\x00")
+        # Create a symlink inside allowed dir pointing to /etc/hosts
+        symlink = tmp_path / "evil_link"
+        symlink.symlink_to("/etc/hosts")
+        try:
+            result = api.get_audio_url(str(symlink))
+            assert result == ""
+        finally:
+            symlink.unlink(missing_ok=True)
+```
+
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cd <worktree> && uv run pytest tests/test_api.py::TestGetAudioUrl -v`
-Expected: tests FAIL — `test_blocks_path_outside_allowed_dirs` and `test_blocks_absolute_path_traversal` should return data URLs (no guard yet), other tests may pass or fail depending on setup.
+Expected: tests FAIL — `test_blocks_path_outside_allowed_dirs`, `test_blocks_absolute_path_traversal`, and `test_blocks_symlink_pointing_outside` should return data URLs (no guard yet). `test_returns_empty_for_empty_path` and `test_returns_empty_for_nonexistent_file` may pass (existing behavior).
 
 - [ ] **Step 3: Implement `_is_path_within_allowed_dirs()` helper + guard in `get_audio_url()`**
 
@@ -387,6 +408,13 @@ class TestOutputDirValidation:
         result = api.set_config("output_dir", "/nonexistent/path/xyz")
         parsed = json.loads(result)
         assert parsed["success"] is False
+
+    def test_set_config_rejects_empty_output_dir(self, api, mock_config):
+        """set_config() rejects empty string for output_dir."""
+        result = api.set_config("output_dir", "")
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+        assert "error" in parsed
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -423,15 +451,16 @@ def set_config(self, key: str, value: object) -> str:
                     "error": "output_dir must be a string",
                 })
             path = Path(value).resolve()
-            # Reject relative paths
-            if not os.path.isabs(str(value)):
+            # Reject relative paths (use Path.is_absolute(), Python 3.9+)
+            if not Path(value).is_absolute():
                 return json.dumps({
                     "success": False,
                     "error": "output_dir must be an absolute path",
                 })
             # Reject path traversal — resolved path must be under HOME
+            # Use is_relative_to() for robust boundary check (Python 3.9+)
             home = Path.home().resolve()
-            if not (str(path).startswith(str(home) + "/") or str(path) == str(home)):
+            if not path.is_relative_to(home):
                 return json.dumps({
                     "success": False,
                     "error": "output_dir must be within your home directory",
