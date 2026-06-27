@@ -118,9 +118,7 @@ class Api:
             return json.dumps({"error": "Text cannot be empty"})
 
         try:
-            output_dir = self._config.get("output_dir")
-            if output_dir is None:
-                output_dir = str(Path.home() / "Desktop")
+            output_dir = self._get_effective_output_dir()
 
             output_path = Path(output_dir) / make_output_filename(text)
             rate_str = format_rate(rate)
@@ -346,6 +344,13 @@ class Api:
         """Set the pywebview window reference for native file dialogs."""
         self._window = window
 
+    def _get_effective_output_dir(self) -> str:
+        """Return the effective output directory, falling back to Desktop."""
+        output_dir = self._config.get("output_dir")
+        if output_dir is None:
+            output_dir = str(Path.home() / "Desktop")
+        return output_dir
+
     @log_api_call
     def get_output_dir(self) -> str:
         """Return the current output directory path.
@@ -353,9 +358,7 @@ class Api:
         Returns:
             JSON with 'output_dir' field.
         """
-        output_dir = self._config.get("output_dir")
-        if output_dir is None:
-            output_dir = str(Path.home() / "Desktop")
+        output_dir = self._get_effective_output_dir()
         return json.dumps({"output_dir": output_dir}, ensure_ascii=False)
 
     @log_api_call
