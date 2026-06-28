@@ -520,3 +520,62 @@ class TestOutputDirValidation:
         assert parsed["success"] is False
         assert "error" in parsed
 
+
+class TestCheckUpdate:
+    """Test check_update() — GitHub release update check (Issue #113)."""
+
+    def test_returns_json_null_on_error(self, api):
+        """check_update() returns JSON null when update check fails."""
+        with patch("importlib.metadata.version", side_effect=Exception("pkg error")):
+            result = api.check_update()
+        parsed = json.loads(result)
+        assert parsed is None
+
+    def test_returns_result_from_checker(self, api, mock_config):
+        """check_update() returns the UpdateChecker result as JSON."""
+        mock_config.get.return_value = None  # skip_version
+        mock_result = {"latest": "1.0.0", "url": "https://example.com"}
+        with patch("importlib.metadata.version", return_value="0.1.0"):
+            with patch("src.update_checker.UpdateChecker") as mock_checker_cls:
+                mock_checker = MagicMock()
+                mock_checker.check.return_value = mock_result
+                mock_checker_cls.return_value = mock_checker
+                result = api.check_update()
+        parsed = json.loads(result)
+        assert parsed == mock_result
+
+    def test_passes_skip_version_to_checker(self, api, mock_config):
+        """check_update() passes skip_version from config to UpdateChecker."""
+        mock_config.get.return_value = "0.9.0"  # skip_version
+        mock_result = {"latest": "1.0.0", "url": "https://example.com"}
+        with patch("importlib.metadata.version", return_value="0.1.0"):
+            with patch("src.update_checker.UpdateChecker") as mock_checker_cls:
+                mock_checker = MagicMock()
+                mock_checker.check.return_value = mock_result
+                mock_checker_cls.return_value = mock_checker
+                api.check_update()
+                # Verify UpdateChecker was constructed with skip_version
+                call_args = mock_checker_cls.call_args
+                assert call_args.kwargs.get("skip_version") == "0.9.0"
+
+    def test_handles_import_error(self, api):
+        """check_update() catches ImportError gracefully."""
+        with patch("importlib.metadata.version", side_effect=ImportError("no module")):
+            result = api.check_update()
+        parsed = json.loads(result)
+        assert parsed is None
+
+
+class TestNotifyPlaybackFinished:
+    """Test notify_playback_finished() — JS bridge playback end notification (Issue #113)."""
+
+    def test_delegates_to_audio_player(self, api, mock_audio_player):
+        """notify_playback_finished() calls AudioPlayer.notify_playback_finished()."""
+        api.notify_playback_finished()
+        mock_audio_player.notify_playback_finished.assert_called_once()
+
+    def test_returns_none(self, api):
+        """notify_playback_finished() returns None (void method)."""
+        result = api.notify_playback_finished()
+        assert result is None
+

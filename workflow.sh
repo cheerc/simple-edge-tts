@@ -54,6 +54,10 @@ step_frontend_build() {
     run_step "t4: frontend build" bash -c "cd frontend && npm run build"
 }
 
+step_coverage() {
+    run_step "t5: coverage (pytest-cov)" uv run pytest tests/ --cov=src --cov-report=term-missing
+}
+
 CMD="${1:-all}"
 
 case "$CMD" in
@@ -62,6 +66,7 @@ case "$CMD" in
         step_typecheck
         step_test
         step_frontend_build
+        step_coverage
         ;;
     lint|t1)
         step_lint
@@ -75,8 +80,11 @@ case "$CMD" in
     frontend|t4)
         step_frontend_build
         ;;
+    coverage|t5)
+        step_coverage
+        ;;
     *)
-        echo "Usage: $0 [all|test|lint|typecheck|frontend|t1|t2|t3|t4]"
+        echo "Usage: $0 [all|test|lint|typecheck|frontend|coverage|t1|t2|t3|t4|t5]"
         exit 1
         ;;
 esac
