@@ -7,7 +7,7 @@ Python side is a thin bridge; actual playback handled by JS in WebView.
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from src.audio_player import AudioPlayer, PlayerState
+from src.audio_player import AudioPlayer, PlayerState, SimpleSignal
 
 
 class TestPlayerState:
@@ -182,3 +182,39 @@ class TestShutdownGuard:
         player.notify_playback_finished()
         mock_window.evaluate_js.assert_not_called()
         assert player.state == PlayerState.IDLE
+
+
+class TestSimpleSignal:
+    """Tests for SimpleSignal — connect, disconnect, and emit."""
+
+    def test_connect_and_emit(self):
+        """connect callback, emit → callback fires with correct args."""
+        signal = SimpleSignal()
+        cb = MagicMock()
+        signal.connect(cb)
+        signal.emit("arg1", "arg2")
+        cb.assert_called_once_with("arg1", "arg2")
+
+    def test_disconnect_single_callback(self):
+        """connect 2 callbacks, disconnect one, emit → only remaining fires."""
+        signal = SimpleSignal()
+        cb1 = MagicMock()
+        cb2 = MagicMock()
+        signal.connect(cb1)
+        signal.connect(cb2)
+        signal.disconnect(cb1)
+        signal.emit()
+        cb1.assert_not_called()
+        cb2.assert_called_once()
+
+    def test_disconnect_all(self):
+        """disconnect() with no args → clear all callbacks, none fire."""
+        signal = SimpleSignal()
+        cb1 = MagicMock()
+        cb2 = MagicMock()
+        signal.connect(cb1)
+        signal.connect(cb2)
+        signal.disconnect()
+        signal.emit()
+        cb1.assert_not_called()
+        cb2.assert_not_called()
