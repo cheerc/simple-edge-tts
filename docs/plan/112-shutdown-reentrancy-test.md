@@ -27,17 +27,19 @@ Prior escaped defects (#47, #77, #81) all involved shutdown hangs. The current m
 
 Extract two functions from `main()` closures to module level:
 
-1. **`create_on_quit_handler(audio_player, api, tray, window)`** → returns `Callable[[], None]`
+1. **`create_on_quit_handler(audio_player, api, window)`** → returns `Callable[[], None]`
    - Encapsulates the current `_on_quit()` closure body
-   - Signature: accepts mockable dependencies instead of capturing them from `main()` scope
+   - **`tray` NOT in params** — the handler is passed to `SystemTrayManager(on_quit=...)` before `tray` is assigned, creating a circular dependency (`UnboundLocalError`). Instead, the returned closure captures `tray` from `main()` scope via Python's late-binding closure — same as the existing code. The handler only calls `tray.stop()` at invocation time, when `tray` is already assigned. (Reviewer2 finding F1 — plan v2 incorrectly included `tray` as factory param.)
+   - Tests mock `tray` separately and inject it into the handler's closure scope for verification
 
 2. **`create_on_window_closing_handler(audio_player, api, window)`** → returns `Callable[[], None]`
    - Encapsulates the current `_on_window_closing()` closure body
    - Returns `None` (implicit) — allows window to close normally. **Must NOT return `False`**: in pywebview, returning `False` from the `closing` event handler **cancels** the close, blocking the window from closing via X button. The existing behavior returns `None` (no explicit return), which allows the close to proceed. (Reviewer finding F1 — plan v1 incorrectly specified `return False`.)
 
 **Design decision**: Factory functions (return closures) rather than plain functions. Rationale:
-- The handlers need references to `audio_player`, `api`, `window` which are created in `main()` — factory functions wire these at creation time
-- The returned callable has the same signature as the current closures → zero change to how they're wired (`tray = SystemTrayManager(on_quit=handler)`, `window.events.closing += handler`)
+- `audio_player`, `api`, `window` are created in `main()` before the handlers — safe to pass as factory params
+- **`tray` is NOT a factory param** — `tray = SystemTrayManager(on_quit=handler)` must reference the handler before `tray` is assigned. The returned closure captures `tray` from `main()` scope via Python's late-binding closure (same as existing code). `tray.stop()` is only called at invocation time, when `tray` is already assigned.
+- The returned callable has the same signature as the current closures → zero change to how they're wired
 - Tests create factories with mocks, then call the returned handler — clean, no global state
 
 ### Phase B: Add dual-trigger regression test
@@ -81,6 +83,11 @@ Verify:
 - `tests/test_audio_player.py::TestShutdownGuard` — existing shutdown guard tests (reference pattern)
 - `tests/test_system_tray.py` — SystemTrayManager tests (mock pattern for tray)
 - `tests/test_api.py` — `cleanup_preview_files` tests (idempotency pattern)
+
+## Deferred (out of scope for this PR)
+
+- **Normal-exit path** (`main.py:214-218`): The post-`webview.start()` cleanup sequence duplicates `_on_quit` logic but is not consolidated into the extracted handlers. Consolidation would require restructuring the normal-exit flow (which also calls `os._exit(0)`) — deferred to avoid scope creep. The extracted handlers are only for the event-driven paths (tray Quit + window closing). (Reviewer2 finding F2)
+- **`_on_quit` reentrancy after window destruction**: If tray Quit is invoked after X-button already closed the window, `_on_quit()` calls `window.destroy()` on an already-destroyed window. This is an existing behavior (not introduced by this refactor) and is mitigated by all cleanup calls being idempotent. Deferred to a separate issue. (Reviewer2 finding F3)
 
 ## Verification
 
