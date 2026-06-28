@@ -118,6 +118,28 @@ def execute_window_closing_shutdown(audio_player, api, window):
         window.evaluate_js = safe_evaluate_js
 
 
+def inject_audio_bridge_js(window, bridge_js_path):
+    """Inject the audio player bridge JavaScript into the WebView.
+
+    Extracted from main() for testability (#114).  Reads the bridge JS
+    file and evaluates it in the WebView so that window.audioPlayerBridge
+    is available for AudioPlayer.play().
+
+    Args:
+        window: The pywebview window object.
+        bridge_js_path: Path to the audio_player_bridge.js file.
+
+    Returns:
+        True if injection succeeded, False otherwise.
+    """
+    try:
+        bridge_js = bridge_js_path.read_text(encoding="utf-8")
+        window.evaluate_js(bridge_js)
+        return True
+    except Exception:
+        return False
+
+
 def main():
     """Launch the application."""
     # Ref: #99 — File-based logging for runtime diagnostics.
@@ -186,15 +208,15 @@ def main():
     # audio_player_bridge.js defines window.audioPlayerBridge (IIFE) which
     # AudioPlayer.play() calls via evaluate_js(). Without injection, the
     # bridge global is undefined and playAudio() silently fails.
+    # Ref: #114 — extracted to module-level inject_audio_bridge_js() for testability.
     _bridge_js_path = _get_base_dir() / "src" / "static" / "js" / "audio_player_bridge.js"
 
     def _on_loaded():
         logger.info("WebView loaded event triggered")
-        try:
-            bridge_js = _bridge_js_path.read_text(encoding="utf-8")
-            window.evaluate_js(bridge_js)
+        ok = inject_audio_bridge_js(window, _bridge_js_path)
+        if ok:
             logger.info("Audio player bridge JS successfully injected")
-        except Exception:
+        else:
             logger.warning(
                 "Failed to inject audio bridge JS from %s", _bridge_js_path,
                 exc_info=True,

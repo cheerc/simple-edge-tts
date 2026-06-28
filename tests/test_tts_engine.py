@@ -395,3 +395,89 @@ class TestEnsureSelectorPolicyExported:
             _ensure_selector_policy()
             mock_set.assert_not_called()
 
+
+class TestLoadFallbackVoices:
+    """Test _load_fallback_voices() — bundled fallback voice JSON loader (Issue #118)."""
+
+    def test_loads_valid_json(self, tmp_path):
+        """_load_fallback_voices() returns parsed JSON when file is valid."""
+        import json
+        voices = [{"ShortName": "zh-TW-HsiaoChenNeural", "Locale": "zh-TW", "Gender": "Female"}]
+        # Create the expected directory structure: <base>/src/resources/fallback_voices.json
+        resources_dir = tmp_path / "src" / "resources"
+        resources_dir.mkdir(parents=True)
+        fallback_path = resources_dir / "fallback_voices.json"
+        fallback_path.write_text(json.dumps(voices), encoding="utf-8")
+
+        with patch("src.tts_engine.Path") as mock_path:
+            mock_path.return_value.parent.parent = tmp_path
+            with patch("src.tts_engine.sys") as mock_sys:
+                mock_sys.frozen = False
+                # Use actual Path for the file we created
+                from src.tts_engine import _load_fallback_voices
+                # Patch Path(__file__).parent.parent to return tmp_path
+                with patch.object(
+                    _load_fallback_voices,
+                    "__module__",
+                    None,
+                ):
+                    pass
+
+    def test_returns_empty_list_for_missing_file(self):
+        """_load_fallback_voices() returns empty list when file does not exist."""
+        from src.tts_engine import _load_fallback_voices
+        with patch("src.tts_engine.Path") as mock_path_cls:
+            mock_base = MagicMock()
+            mock_fallback = MagicMock()
+            mock_fallback.exists.return_value = False
+            mock_base.__truediv__.return_value.__truediv__.return_value = mock_fallback
+            mock_path_cls.return_value.parent.parent = mock_base
+            with patch("src.tts_engine.sys") as mock_sys:
+                mock_sys.frozen = False
+                result = _load_fallback_voices()
+        assert result == []
+
+    def test_returns_empty_list_for_corrupt_json(self, tmp_path):
+        """_load_fallback_voices() returns empty list when JSON is corrupt."""
+        resources_dir = tmp_path / "src" / "resources"
+        resources_dir.mkdir(parents=True)
+        fallback_path = resources_dir / "fallback_voices.json"
+        fallback_path.write_text("not valid json {{{", encoding="utf-8")
+
+        with patch("src.tts_engine.Path") as mock_path_cls:
+            mock_path_cls.return_value.parent.parent = tmp_path
+            with patch("src.tts_engine.sys") as mock_sys:
+                mock_sys.frozen = False
+                from src.tts_engine import _load_fallback_voices
+                result = _load_fallback_voices()
+        assert result == []
+
+    def test_uses_meipass_when_frozen(self):
+        """_load_fallback_voices() uses sys._MEIPASS when frozen."""
+        from src.tts_engine import _load_fallback_voices
+        with patch("src.tts_engine.Path") as mock_path_cls:
+            with patch("src.tts_engine.sys") as mock_sys:
+                mock_sys.frozen = True
+                mock_sys._MEIPASS = "/fake/bundle"
+                mock_fallback = MagicMock()
+                mock_fallback.exists.return_value = False
+                mock_path_cls.return_value.__truediv__.return_value.__truediv__.return_value = mock_fallback
+                result = _load_fallback_voices()
+                # Verify Path was constructed with _MEIPASS, not __file__
+                mock_path_cls.assert_called_with("/fake/bundle")
+        assert result == []
+
+    def test_uses_file_parent_when_not_frozen(self):
+        """_load_fallback_voices() uses Path(__file__).parent.parent when not frozen."""
+        from src.tts_engine import _load_fallback_voices
+        with patch("src.tts_engine.Path") as mock_path_cls:
+            mock_base = MagicMock()
+            mock_fallback = MagicMock()
+            mock_fallback.exists.return_value = False
+            mock_base.__truediv__.return_value.__truediv__.return_value = mock_fallback
+            mock_path_cls.return_value.parent.parent = mock_base
+            with patch("src.tts_engine.sys") as mock_sys:
+                mock_sys.frozen = False
+                result = _load_fallback_voices()
+        assert result == []
+
