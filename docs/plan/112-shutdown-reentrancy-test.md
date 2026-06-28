@@ -25,22 +25,24 @@ Prior escaped defects (#47, #77, #81) all involved shutdown hangs. The current m
 
 ### Phase A: Extract handlers as testable functions (refactor, no behavior change)
 
-Extract two functions from `main()` closures to module level:
+Extract the shutdown logic into module-level functions, wired via `lambda` in `main()`:
 
-1. **`create_on_quit_handler(audio_player, api, window)`** → returns `Callable[[], None]`
-   - Encapsulates the current `_on_quit()` closure body
-   - **`tray` NOT in params** — the handler is passed to `SystemTrayManager(on_quit=...)` before `tray` is assigned, creating a circular dependency (`UnboundLocalError`). Instead, the returned closure captures `tray` from `main()` scope via Python's late-binding closure — same as the existing code. The handler only calls `tray.stop()` at invocation time, when `tray` is already assigned. (Reviewer2 finding F1 — plan v2 incorrectly included `tray` as factory param.)
-   - Tests mock `tray` separately and inject it into the handler's closure scope for verification
+1. **`execute_quit_shutdown(audio_player, api, tray, window)`** — module-level function (新增)
+   - Encapsulates the current `_on_quit()` closure body: `begin_shutdown()` → `cleanup_preview_files()` → `tray.stop()` → `shutdown_event_loop()` → `window.destroy()`
+   - Directly testable with mocks — no factory needed
+   - Wired in `main()` as: `on_quit=lambda: execute_quit_shutdown(audio_player, api, tray, window)`
+   - The `lambda` resolves `tray` via Python late-binding at call time — no circular dependency (Reviewer2 finding F1, Path B)
 
-2. **`create_on_window_closing_handler(audio_player, api, window)`** → returns `Callable[[], None]`
-   - Encapsulates the current `_on_window_closing()` closure body
-   - Returns `None` (implicit) — allows window to close normally. **Must NOT return `False`**: in pywebview, returning `False` from the `closing` event handler **cancels** the close, blocking the window from closing via X button. The existing behavior returns `None` (no explicit return), which allows the close to proceed. (Reviewer finding F1 — plan v1 incorrectly specified `return False`.)
+2. **`execute_window_closing_shutdown(audio_player, api, window)`** — module-level function (新增)
+   - Encapsulates the current `_on_window_closing()` closure body: `begin_shutdown()` → `cleanup_preview_files()` → monkey-patch `evaluate_js`
+   - Returns `None` (implicit) — allows window to close normally. **Must NOT return `False`**: in pywebview, returning `False` from the `closing` event handler **cancels** the close. (Reviewer finding F1)
+   - Wired in `main()` as: `window.events.closing += lambda: execute_window_closing_shutdown(audio_player, api, window)`
 
-**Design decision**: Factory functions (return closures) rather than plain functions. Rationale:
-- `audio_player`, `api`, `window` are created in `main()` before the handlers — safe to pass as factory params
-- **`tray` is NOT a factory param** — `tray = SystemTrayManager(on_quit=handler)` must reference the handler before `tray` is assigned. The returned closure captures `tray` from `main()` scope via Python's late-binding closure (same as existing code). `tray.stop()` is only called at invocation time, when `tray` is already assigned.
-- The returned callable has the same signature as the current closures → zero change to how they're wired
-- Tests create factories with mocks, then call the returned handler — clean, no global state
+**Design decision**: Plain module-level functions + `lambda` wiring (Reviewer2 Path B). Rationale:
+- Module-level functions are directly importable and testable — no factory function indirection
+- `lambda` in `main()` provides late-binding for `tray` (solves the circular dependency cleanly)
+- `_on_window_closing` doesn't need `tray` — only `audio_player`, `api`, `window`
+- Same pattern for both handlers: extract logic → wire with `lambda`
 
 ### Phase B: Add dual-trigger regression test
 
@@ -68,13 +70,13 @@ Verify:
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/main.py` | Modify | Extract `_on_quit` and `_on_window_closing` to module-level factory functions |
+| `src/main.py` | Modify | Extract `execute_quit_shutdown` + `execute_window_closing_shutdown` to module level; wire via `lambda` in `main()` |
 | `tests/test_shutdown.py` | Create | Dual-trigger regression test + individual handler tests |
 
 ## Affected Callers
 
-- `src/main.py:148-150` — `SystemTrayManager(on_quit=_on_quit)` → becomes `SystemTrayManager(on_quit=create_on_quit_handler(...))`
-- `src/main.py:199` — `window.events.closing += _on_window_closing` → becomes `window.events.closing += create_on_window_closing_handler(...)`
+- `src/main.py:148-150` — `SystemTrayManager(on_quit=_on_quit)` → becomes `SystemTrayManager(on_quit=lambda: execute_quit_shutdown(audio_player, api, tray, window))`
+- `src/main.py:199` — `window.events.closing += _on_window_closing` → becomes `window.events.closing += lambda: execute_window_closing_shutdown(audio_player, api, window)`
 - `src/system_tray.py:121` — `self._on_quit()` — no change (calls the same callable)
 - No test files reference `_on_quit` or `_on_window_closing` directly (they're closures, not importable)
 
@@ -95,4 +97,4 @@ Verify:
 2. `uv run pytest tests/ -v` — full suite passes (expect ~162 tests)
 3. `./workflow.sh t1` (ruff) clean
 4. `./workflow.sh t2` (mypy) clean
-5. Manual smoke: `uv run python -c "from src.main import create_on_quit_handler, create_on_window_closing_handler; print('imports OK')"`
+5. Manual smoke: `uv run python -c "from src.main import execute_quit_shutdown, execute_window_closing_shutdown; print('imports OK')"`
