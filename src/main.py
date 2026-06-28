@@ -85,6 +85,39 @@ def _get_frontend_url() -> str:
     return str(FRONTEND_DIST)
 
 
+def execute_quit_shutdown(audio_player, api, tray, window):
+    """Execute the tray Quit shutdown sequence.
+
+    Extracted from main() for testability (#112).  All cleanup calls are
+    idempotent — safe to call even if the window-closing path has already run.
+    """
+    audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
+    api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
+    tray.stop()
+    shutdown_event_loop()
+    window.destroy()
+
+
+def execute_window_closing_shutdown(audio_player, api, window):
+    """Execute the window closing shutdown sequence.
+
+    Extracted from main() for testability (#112).  Monkey-patches
+    window.evaluate_js to prevent pywebview _call threads from deadlocking
+    during shutdown.  The monkey-patch guard ensures the patch is applied
+    only once even when both shutdown paths fire.
+    """
+    audio_player.begin_shutdown()  # Ref: #77 — set shutdown flag
+    api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
+    original = getattr(window, '_original_evaluate_js', None)
+    if original is None:  # Only patch once
+        window._original_evaluate_js = window.evaluate_js
+        def safe_evaluate_js(script, callback=None):
+            if audio_player._shutting_down:
+                return None
+            return window._original_evaluate_js(script, callback)
+        window.evaluate_js = safe_evaluate_js
+
+
 def main():
     """Launch the application."""
     # Ref: #99 — File-based logging for runtime diagnostics.
@@ -137,17 +170,10 @@ def main():
     # Ref: T20 — System tray (pystray): Show/Hide window, Quit app
     # Ref: #47 — Quit handler must stop tray + event loop before
     # destroying the window, otherwise daemon threads hang at shutdown.
-    def _on_quit():
-        logger.info("Quit handler invoked from tray")
-        audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
-        api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
-        tray.stop()
-        shutdown_event_loop()
-        window.destroy()
-
+    # Ref: #112 — Lambda provides late-binding for tray (solves circular dependency).
     tray = SystemTrayManager(
         window=window,
-        on_quit=_on_quit,
+        on_quit=lambda: execute_quit_shutdown(audio_player, api, tray, window),
     )
 
     # Start tray before webview — on macOS, pystray creates NSStatusItem
@@ -183,20 +209,8 @@ def main():
     # closes and NSRunLoop exits, callAfter never executes and the
     # semaphore never releases → hang. Making evaluate_js a no-op
     # during shutdown lets those threads complete harmlessly.
-    def _on_window_closing():
-        logger.info("WebView window closing event triggered")
-        audio_player.begin_shutdown()  # Ref: #77 — set shutdown flag
-        api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles (F4: before monkey-patch guard)
-        original = getattr(window, '_original_evaluate_js', None)
-        if original is None:  # Only patch once
-            window._original_evaluate_js = window.evaluate_js
-            def safe_evaluate_js(script, callback=None):
-                if audio_player._shutting_down:
-                    return None
-                return window._original_evaluate_js(script, callback)
-            window.evaluate_js = safe_evaluate_js
-
-    window.events.closing += _on_window_closing
+    # Ref: #112 — Extracted to module-level execute_window_closing_shutdown.
+    window.events.closing += lambda: execute_window_closing_shutdown(audio_player, api, window)
 
     # Ref: #73 — Defer voice prefetch to after the window is displayed.
     # webview.start(func=...) runs the callback in a background thread
