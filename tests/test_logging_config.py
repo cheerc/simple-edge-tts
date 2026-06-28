@@ -338,3 +338,55 @@ class TestSetupLogging:
         assert len(file_handlers) == 1, (
             f"Expected 1 RotatingFileHandler when config says True, got {len(file_handlers)}"
         )
+
+
+# ---------------------------------------------------------------------------
+# start_diagnostic_monitor — dev-mode gate (Issue #117)
+# ---------------------------------------------------------------------------
+
+class TestDiagnosticMonitorGate:
+    """Tests that start_diagnostic_monitor() is only called in dev mode."""
+
+    def test_monitor_called_in_dev_mode(self):
+        """start_diagnostic_monitor() is called when _is_dev_mode() returns True."""
+        from unittest.mock import patch
+        import src.main as main_module
+
+        with patch("src.main._is_dev_mode", return_value=True):
+            with patch("src.main.setup_logging"):
+                with patch("src.main.start_diagnostic_monitor") as mock_monitor:
+                    with patch("src.main.Api"):
+                        with patch("src.main.webview"):
+                            with patch("src.main.ConfigManager"):
+                                with patch("src.main.SystemTrayManager"):
+                                    with patch("src.main.TTSEngine"):
+                                        with patch("src.main.I18n"):
+                                            with patch("src.main.AudioPlayer"):
+                                                with patch("src.main._ensure_selector_policy"):
+                                                    with patch("src.main.shutdown_event_loop"):
+                                                        with patch("src.main.os._exit"):
+                                                            main_module.main()
+
+        mock_monitor.assert_called_once_with(interval_seconds=5.0)
+
+    def test_monitor_skipped_in_production_mode(self):
+        """start_diagnostic_monitor() is NOT called when _is_dev_mode() returns False."""
+        from unittest.mock import patch
+        import src.main as main_module
+
+        with patch("src.main._is_dev_mode", return_value=False):
+            with patch("src.main.setup_logging"):
+                with patch("src.main.start_diagnostic_monitor") as mock_monitor:
+                    with patch("src.main.Api"):
+                        with patch("src.main.webview"):
+                            with patch("src.main.ConfigManager"):
+                                with patch("src.main.SystemTrayManager"):
+                                    with patch("src.main.TTSEngine"):
+                                        with patch("src.main.I18n"):
+                                            with patch("src.main.AudioPlayer"):
+                                                with patch("src.main._ensure_selector_policy"):
+                                                    with patch("src.main.shutdown_event_loop"):
+                                                        with patch("src.main.os._exit"):
+                                                            main_module.main()
+
+        mock_monitor.assert_not_called()

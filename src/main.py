@@ -91,7 +91,10 @@ def main():
     # Must be called before anything else so all subsequent logger output
     # is captured to disk (vital for PyInstaller-frozen builds).
     setup_logging()
-    start_diagnostic_monitor(interval_seconds=5.0)
+    # Ref: #117 — Only run the diagnostic thread monitor in dev mode.
+    # In production builds the 5s stack dump fills log rotation with noise.
+    if _is_dev_mode():
+        start_diagnostic_monitor(interval_seconds=5.0)
     logger.info("Application starting - base_dir=%s, dev_mode=%s", _get_base_dir(), _is_dev_mode())
 
     # Ref: #95 — Must be called on the main thread before any event loop
