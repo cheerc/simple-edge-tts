@@ -324,6 +324,104 @@ class TestGetAudioUrl:
         finally:
             symlink.unlink(missing_ok=True)
 
+    def test_rejects_oversized_file(self, api, mock_config, tmp_path):
+        """get_audio_url() returns empty string when file exceeds MAX_AUDIO_URL_BYTES (5MB)."""
+        mock_config.get.return_value = str(tmp_path)
+        audio = tmp_path / "large.mp3"
+        # Create a file larger than 5MB
+        audio.write_bytes(b"\x00" * (5 * 1024 * 1024 + 1))
+
+        result = api.get_audio_url(str(audio))
+
+        assert result == ""
+
+    def test_size_check_handles_os_error(self, api, mock_config, tmp_path):
+        """get_audio_url() returns empty string when stat() raises OSError."""
+        mock_config.get.return_value = str(tmp_path)
+        audio = tmp_path / "unreadable.mp3"
+        audio.write_bytes(b"\xff\xfb\x90\x00")
+
+        # Bypass path-guard and exists() checks, then make stat() raise
+        # OSError to simulate a file that disappears between exists()
+        # and stat() (reviewer finding F1).
+        with patch.object(api, "_is_path_within_allowed_dirs", return_value=True):
+            with patch.object(Path, "exists", return_value=True):
+                with patch.object(Path, "stat", autospec=True,
+                                  side_effect=OSError("Permission denied")):
+                    result = api.get_audio_url(str(audio))
+
+        assert result == ""
+
+
+class TestPreviewCleanup:
+    """Test preview tempfile tracking and cleanup (Issue #123)."""
+
+    def test_preview_tts_tracks_tempfile(self, api, mock_tts_engine):
+        """preview_tts() appends created tempfile path to _preview_tempfiles."""
+        result = api.preview_tts("Hello", "en-US-JennyNeural", 0, 0)
+        parsed = json.loads(result)
+        tmp_path = Path(parsed["path"])
+
+        assert tmp_path in api._preview_tempfiles
+        # Clean up
+        tmp_path.unlink(missing_ok=True)
+
+    def test_cleanup_preview_files_removes_tracked_files(self, api, mock_tts_engine):
+        """cleanup_preview_files() deletes all tracked tempfiles."""
+        # Create two preview files
+        result1 = api.preview_tts("First", "en-US-JennyNeural", 0, 0)
+        result2 = api.preview_tts("Second", "en-US-JennyNeural", 0, 0)
+        path1 = Path(json.loads(result1)["path"])
+        path2 = Path(json.loads(result2)["path"])
+
+        assert path1.exists()
+        assert path2.exists()
+        assert len(api._preview_tempfiles) == 2
+
+        api.cleanup_preview_files()
+
+        assert not path1.exists()
+        assert not path2.exists()
+
+    def test_cleanup_preview_files_clears_list(self, api, mock_tts_engine):
+        """cleanup_preview_files() clears _preview_tempfiles after cleanup."""
+        api.preview_tts("Hello", "en-US-JennyNeural", 0, 0)
+        result = api.preview_tts("World", "en-US-JennyNeural", 0, 0)
+        path2 = Path(json.loads(result)["path"])
+
+        assert len(api._preview_tempfiles) == 2
+
+        api.cleanup_preview_files()
+
+        assert api._preview_tempfiles == []
+        # Clean up in case cleanup failed
+        path2.unlink(missing_ok=True)
+
+    def test_cleanup_preview_files_idempotent(self, api, mock_tts_engine):
+        """cleanup_preview_files() is idempotent — safe to call multiple times."""
+        api.preview_tts("Hello", "en-US-JennyNeural", 0, 0)
+        result = json.loads(api.preview_tts("World", "en-US-JennyNeural", 0, 0))
+        path2 = Path(result["path"])
+
+        api.cleanup_preview_files()
+        # Second call should not raise
+        api.cleanup_preview_files()
+
+        assert api._preview_tempfiles == []
+        path2.unlink(missing_ok=True)
+
+    def test_cleanup_preview_files_handles_missing_file(self, api, mock_tts_engine):
+        """cleanup_preview_files() tolerates files already deleted."""
+        result = api.preview_tts("Hello", "en-US-JennyNeural", 0, 0)
+        path = Path(json.loads(result)["path"])
+        # Delete the file before cleanup
+        path.unlink()
+
+        # Should not raise
+        api.cleanup_preview_files()
+
+        assert api._preview_tempfiles == []
+
 
 class TestSSMLSanitization:
     """Test SSML/XML escaping in TTS text input (Issue #120)."""

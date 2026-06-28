@@ -17,6 +17,7 @@ import logging
 import mimetypes
 import tempfile
 import tempfile as _tempfile_module  # aliased for _is_path_within_allowed_dirs
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 from xml.sax.saxutils import escape as _xml_escape
@@ -31,6 +32,11 @@ if TYPE_CHECKING:
 import functools
 
 logger = logging.getLogger(__name__)
+
+# Ref: #116 — File size limit for get_audio_url() to prevent blocking
+# pywebview's IPC bridge thread on unexpectedly large files.
+# Preview files are typically <500KB; 5MB provides generous headroom.
+MAX_AUDIO_URL_BYTES = 5 * 1024 * 1024  # 5MB
 
 
 def log_api_call(func):
@@ -88,6 +94,11 @@ class Api:
         self._audio_player = audio_player
         self._i18n = i18n
         self._window: Optional[Any] = None
+        # Ref: #123 — Track preview tempfiles for cleanup before os._exit(0)
+        # bypasses Python finalization. Protected by lock for concurrent
+        # pywebview worker threads (reviewer finding F2).
+        self._preview_tempfiles: list[Path] = []
+        self._preview_tempfiles_lock = threading.Lock()
 
     @log_api_call
     def get_voices(self) -> str:
@@ -190,6 +201,12 @@ class Api:
                     pitch=pitch_str,
                 )
             )
+
+            # Ref: #123 — Track tempfile for cleanup at shutdown.
+            # os._exit(0) bypasses Python finalization, so we must
+            # explicitly clean up before exit.
+            with self._preview_tempfiles_lock:
+                self._preview_tempfiles.append(Path(tmp_path))
 
             return json.dumps({"path": tmp_path}, ensure_ascii=False)
         except Exception as e:
@@ -332,6 +349,20 @@ class Api:
             return ""
         if not path.exists():
             return ""
+        # Ref: #116 — Reject files larger than MAX_AUDIO_URL_BYTES to
+        # prevent blocking pywebview's IPC bridge thread on large reads.
+        # Wrap stat() in try-except OSError — file may disappear between
+        # exists() and stat() (reviewer finding F1).
+        try:
+            if path.stat().st_size > MAX_AUDIO_URL_BYTES:
+                logger.warning(
+                    "get_audio_url: file %s exceeds size limit (%d > %d)",
+                    path, path.stat().st_size, MAX_AUDIO_URL_BYTES,
+                )
+                return ""
+        except OSError:
+            logger.warning("get_audio_url: stat() failed for %s", path, exc_info=True)
+            return ""
         mime_type = mimetypes.guess_type(str(path))[0] or "audio/mpeg"
         data = path.read_bytes()
         b64 = base64.b64encode(data).decode("ascii")
@@ -382,6 +413,26 @@ class Api:
     def set_window(self, window: object) -> None:
         """Set the pywebview window reference for native file dialogs."""
         self._window = window
+
+    def cleanup_preview_files(self) -> None:
+        """Delete all tracked preview tempfiles and clear the tracking list.
+
+        Idempotent — safe to call multiple times.  Tolerates files that
+        have already been deleted (e.g. by an external process).
+
+        Ref: #123 — os._exit(0) bypasses Python finalization, so preview
+        tempfiles must be explicitly cleaned up before exit.
+        """
+        with self._preview_tempfiles_lock:
+            for path in self._preview_tempfiles:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    logger.debug(
+                        "cleanup_preview_files: could not delete %s",
+                        path, exc_info=True,
+                    )
+            self._preview_tempfiles.clear()
 
     def _get_effective_output_dir(self) -> str:
         """Return the effective output directory, falling back to Desktop."""
