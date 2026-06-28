@@ -90,8 +90,6 @@ class TestExecuteWindowClosingShutdown:
 
     def test_monkey_patches_evaluate_js(self, mock_audio_player, mock_api, mock_window):
         """First call monkey-patches window.evaluate_js."""
-        original_evaluate_js = mock_window.evaluate_js
-
         # MagicMock.__getattr__ never returns None, so we use a plain object
         # with an explicit _original_evaluate_js=None to test the guard.
         class FakeWindow:
@@ -101,10 +99,12 @@ class TestExecuteWindowClosingShutdown:
         fake.evaluate_js = MagicMock(return_value="original")
         fake._original_evaluate_js = None  # explicitly None — guard passes
 
+        old_evaluate_js = fake.evaluate_js
+
         execute_window_closing_shutdown(mock_audio_player, mock_api, fake)
 
         # evaluate_js should be replaced with a function
-        assert fake.evaluate_js is not original_evaluate_js
+        assert fake.evaluate_js is not old_evaluate_js
         assert callable(fake.evaluate_js)
 
     def test_patched_evaluate_js_noops_when_shutting_down(self, mock_audio_player, mock_api, mock_window):
