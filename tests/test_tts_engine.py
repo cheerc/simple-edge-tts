@@ -409,19 +409,15 @@ class TestLoadFallbackVoices:
         fallback_path = resources_dir / "fallback_voices.json"
         fallback_path.write_text(json.dumps(voices), encoding="utf-8")
 
-        with patch("src.tts_engine.Path") as mock_path:
-            mock_path.return_value.parent.parent = tmp_path
+        # Patch Path(__file__).parent.parent to point to tmp_path so
+        # _load_fallback_voices() finds the fallback_voices.json we just created.
+        with patch("src.tts_engine.Path") as mock_path_cls:
+            mock_path_cls.return_value.parent.parent = tmp_path
             with patch("src.tts_engine.sys") as mock_sys:
                 mock_sys.frozen = False
-                # Use actual Path for the file we created
                 from src.tts_engine import _load_fallback_voices
-                # Patch Path(__file__).parent.parent to return tmp_path
-                with patch.object(
-                    _load_fallback_voices,
-                    "__module__",
-                    None,
-                ):
-                    pass
+                result = _load_fallback_voices()
+        assert result == voices
 
     def test_returns_empty_list_for_missing_file(self):
         """_load_fallback_voices() returns empty list when file does not exist."""
