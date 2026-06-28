@@ -31,9 +31,9 @@ Extract two functions from `main()` closures to module level:
    - Encapsulates the current `_on_quit()` closure body
    - Signature: accepts mockable dependencies instead of capturing them from `main()` scope
 
-2. **`create_on_window_closing_handler(audio_player, api, window)`** → returns `Callable[[], bool]`
+2. **`create_on_window_closing_handler(audio_player, api, window)`** → returns `Callable[[], None]`
    - Encapsulates the current `_on_window_closing()` closure body
-   - Returns `False` (cancel native close — existing behavior preserved)
+   - Returns `None` (implicit) — allows window to close normally. **Must NOT return `False`**: in pywebview, returning `False` from the `closing` event handler **cancels** the close, blocking the window from closing via X button. The existing behavior returns `None` (no explicit return), which allows the close to proceed. (Reviewer finding F1 — plan v1 incorrectly specified `return False`.)
 
 **Design decision**: Factory functions (return closures) rather than plain functions. Rationale:
 - The handlers need references to `audio_player`, `api`, `window` which are created in `main()` — factory functions wire these at creation time
@@ -43,8 +43,24 @@ Extract two functions from `main()` closures to module level:
 ### Phase B: Add dual-trigger regression test
 
 New test file `tests/test_shutdown.py`:
-- Test: `test_dual_trigger_no_hang` — simulate Cmd+Q → `_on_quit()` → `window.destroy()` → `_on_window_closing()` re-enters
-- Verify: all expected calls made exactly once (idempotency), no exceptions raised, monkey-patch guard holds
+
+**`test_dual_trigger_no_hang`** — simulate Cmd+Q → `_on_quit()` → `window.destroy()` → `_on_window_closing()` re-enters.
+
+**Mock wiring for reentrancy** (reviewer finding F2): A mock `window` will NOT automatically trigger `window.events.closing` when `window.destroy()` is called. The test must explicitly wire `mock_window.destroy.side_effect` to invoke the closing handler to correctly simulate the reentrancy path:
+```python
+# Wire reentrancy: window.destroy() triggers the closing handler
+mock_window.destroy.side_effect = on_window_closing
+```
+
+**Idempotency assertions** (reviewer finding F2): `api.cleanup_preview_files` and `audio_player.begin_shutdown` are called from multiple shutdown entry points. Do NOT use `assert_called_once` — verify they are called at least once, and verify idempotency by checking the monkey-patch guard (`window._original_evaluate_js is not None` after first call) and that no exceptions are raised on re-entry.
+
+Verify:
+- `audio_player.begin_shutdown()` called (at least once)
+- `api.cleanup_preview_files()` called (at least once)
+- `tray.stop()` called (at least once)
+- `shutdown_event_loop()` called (at least once)
+- Monkey-patch guard holds: `window._original_evaluate_js` set exactly once
+- No exceptions raised during dual trigger
 
 ## Files
 
