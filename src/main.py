@@ -140,6 +140,7 @@ def main():
     def _on_quit():
         logger.info("Quit handler invoked from tray")
         audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
+        api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
         tray.stop()
         shutdown_event_loop()
         window.destroy()
@@ -185,6 +186,7 @@ def main():
     def _on_window_closing():
         logger.info("WebView window closing event triggered")
         audio_player.begin_shutdown()  # Ref: #77 — set shutdown flag
+        api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles (F4: before monkey-patch guard)
         original = getattr(window, '_original_evaluate_js', None)
         if original is None:  # Only patch once
             window._original_evaluate_js = window.evaluate_js
@@ -211,6 +213,7 @@ def main():
     # All calls are idempotent so safe to run even if _on_quit() already did them.
     logger.info("webview.start() finished. Starting normal exit cleanup...")
     audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
+    api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles before os._exit(0)
     tray.stop()
     shutdown_event_loop()
     logger.info("Normal exit cleanup complete. Exiting process.")
