@@ -20,6 +20,7 @@ from pathlib import Path
 import webview
 
 from src.api import Api
+from src.app_context import AppContext
 from src.audio_player import AudioPlayer
 from src.config_manager import ConfigManager
 from src.i18n import I18n
@@ -87,7 +88,7 @@ def _get_frontend_url() -> str:
     return str(FRONTEND_DIST)
 
 
-def _run_cleanup(audio_player, api, tray=None):
+def _run_cleanup(ctx: AppContext):
     """Run the shared shutdown cleanup sequence — idempotent.
 
     Called from three shutdown paths (Ref: #112, #47):
@@ -100,42 +101,47 @@ def _run_cleanup(audio_player, api, tray=None):
 
     Ref: #139 — Consolidates repeated begin_shutdown+cleanup+tray.stop+shutdown
     that was duplicated across execute_quit_shutdown and the normal-exit block.
+    Ref: #140 — Uses AppContext instead of individual parameters.
     """
-    audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
-    api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
-    if tray is not None:
-        tray.stop()
+    ctx.audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
+    ctx.api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
+    if ctx.tray is not None:
+        ctx.tray.stop()
     shutdown_event_loop()
 
 
-def execute_quit_shutdown(audio_player, api, tray, window):
+def execute_quit_shutdown(ctx: AppContext):
     """Execute the tray Quit shutdown sequence.
 
     Extracted from main() for testability (#112).  All cleanup calls are
     idempotent — safe to call even if the window-closing path has already run.
+
+    Ref: #140 — Uses AppContext instead of individual parameters.
     """
-    _run_cleanup(audio_player, api, tray)
-    window.destroy()
+    _run_cleanup(ctx)
+    ctx.window.destroy()
 
 
-def execute_window_closing_shutdown(audio_player, api, window):
+def execute_window_closing_shutdown(ctx: AppContext):
     """Execute the window closing shutdown sequence.
 
     Extracted from main() for testability (#112).  Monkey-patches
     window.evaluate_js to prevent pywebview _call threads from deadlocking
     during shutdown.  The monkey-patch guard ensures the patch is applied
     only once even when both shutdown paths fire.
+
+    Ref: #140 — Uses AppContext instead of individual parameters.
     """
-    audio_player.begin_shutdown()  # Ref: #77 — set shutdown flag
-    api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
-    original = getattr(window, '_original_evaluate_js', None)
+    ctx.audio_player.begin_shutdown()  # Ref: #77 — set shutdown flag
+    ctx.api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
+    original = getattr(ctx.window, '_original_evaluate_js', None)
     if original is None:  # Only patch once
-        window._original_evaluate_js = window.evaluate_js
+        ctx.window._original_evaluate_js = ctx.window.evaluate_js
         def safe_evaluate_js(script, callback=None):
-            if audio_player._shutting_down:
+            if ctx.audio_player._shutting_down:
                 return None
-            return window._original_evaluate_js(script, callback)
-        window.evaluate_js = safe_evaluate_js
+            return ctx.window._original_evaluate_js(script, callback)
+        ctx.window.evaluate_js = safe_evaluate_js
 
 
 def inject_audio_bridge_js(window, bridge_js_path):
@@ -218,6 +224,15 @@ def main():
         background_color=bg_color,
     )
 
+    # Ref: #140 — AppContext bundles core objects for lifecycle management.
+    # Previously a 4-parameter lambda; now a single context reference with
+    # late-mutated fields solves the circular dependency cleanly.
+    ctx = AppContext(
+        audio_player=audio_player,
+        api=api,
+        window=window,
+    )
+
     # Wire AudioPlayer to the webview window for JS bridge communication
     audio_player.set_webview_window(window)
 
@@ -228,11 +243,12 @@ def main():
     # Ref: T20 — System tray (pystray): Show/Hide window, Quit app
     # Ref: #47 — Quit handler must stop tray + event loop before
     # destroying the window, otherwise daemon threads hang at shutdown.
-    # Ref: #112 — Lambda provides late-binding for tray (solves circular dependency).
+    # Ref: #112/#140 — Lambda with ctx provides late-binding for tray.
     tray = SystemTrayManager(
         window=window,
-        on_quit=lambda: execute_quit_shutdown(audio_player, api, tray, window),
+        on_quit=lambda: execute_quit_shutdown(ctx),
     )
+    ctx.tray = tray  # late-bind after tray is created
 
     # Start tray before webview — on macOS, pystray creates NSStatusItem
     # which requires the main thread. webview.start() blocks the main thread,
@@ -274,7 +290,7 @@ def main():
     # semaphore never releases → hang. Making evaluate_js a no-op
     # during shutdown lets those threads complete harmlessly.
     # Ref: #112 — Extracted to module-level execute_window_closing_shutdown.
-    window.events.closing += lambda: execute_window_closing_shutdown(audio_player, api, window)
+    window.events.closing += lambda: execute_window_closing_shutdown(ctx)
 
     # Ref: #73 — Defer voice prefetch to after the window is displayed.
     # webview.start(func=...) runs the callback in a background thread
@@ -293,7 +309,7 @@ def main():
     # executes, even if a cleanup step raises unexpectedly.
     logger.info("webview.start() finished. Starting normal exit cleanup...")
     try:
-        _run_cleanup(audio_player, api, tray)
+        _run_cleanup(ctx)
     except Exception:
         logger.exception("Exception during normal exit cleanup — forcing exit anyway")
     logger.info("Normal exit cleanup complete. Exiting process.")

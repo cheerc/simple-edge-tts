@@ -2,12 +2,15 @@
 
 These tests use mocked pywebview window, AudioPlayer, Api, SystemTrayManager,
 and TTSEngine to exercise the shutdown/lifecycle functions extracted from main().
+
+Ref: #140 — Updated to use AppContext instead of individual parameters.
 """
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.app_context import AppContext
 from src.main import (
     execute_quit_shutdown,
     execute_window_closing_shutdown,
@@ -47,13 +50,24 @@ def mock_window():
     return w
 
 
+def _make_ctx(audio_player, api, tray=None, window=None):
+    """Helper to create an AppContext from test fixtures."""
+    return AppContext(
+        audio_player=audio_player,
+        api=api,
+        tray=tray,
+        window=window,
+    )
+
+
 # ── execute_quit_shutdown ────────────────────────────────────────────────────
 
 class TestExecuteQuitShutdown:
     """Tests for execute_quit_shutdown() — tray Quit → full shutdown."""
 
     def test_calls_all_cleanup_steps(self, mock_audio_player, mock_api, mock_tray, mock_window):
-        execute_quit_shutdown(mock_audio_player, mock_api, mock_tray, mock_window)
+        ctx = _make_ctx(mock_audio_player, mock_api, mock_tray, mock_window)
+        execute_quit_shutdown(ctx)
 
         mock_audio_player.begin_shutdown.assert_called_once()
         mock_api.cleanup_preview_files.assert_called_once()
@@ -61,14 +75,16 @@ class TestExecuteQuitShutdown:
         mock_window.destroy.assert_called_once()
 
     def test_shutdown_event_loop_called(self, mock_audio_player, mock_api, mock_tray, mock_window):
+        ctx = _make_ctx(mock_audio_player, mock_api, mock_tray, mock_window)
         with patch("src.main.shutdown_event_loop") as mock_shutdown:
-            execute_quit_shutdown(mock_audio_player, mock_api, mock_tray, mock_window)
+            execute_quit_shutdown(ctx)
             mock_shutdown.assert_called_once()
 
     def test_idempotent_double_call(self, mock_audio_player, mock_api, mock_tray, mock_window):
         """Double-calling execute_quit_shutdown is safe (all steps idempotent)."""
-        execute_quit_shutdown(mock_audio_player, mock_api, mock_tray, mock_window)
-        execute_quit_shutdown(mock_audio_player, mock_api, mock_tray, mock_window)
+        ctx = _make_ctx(mock_audio_player, mock_api, mock_tray, mock_window)
+        execute_quit_shutdown(ctx)
+        execute_quit_shutdown(ctx)
 
         # Each step called twice
         assert mock_audio_player.begin_shutdown.call_count == 2
@@ -83,7 +99,8 @@ class TestExecuteWindowClosingShutdown:
     """Tests for execute_window_closing_shutdown() — X-button / window close path."""
 
     def test_calls_begin_shutdown_and_cleanup(self, mock_audio_player, mock_api, mock_window):
-        execute_window_closing_shutdown(mock_audio_player, mock_api, mock_window)
+        ctx = _make_ctx(mock_audio_player, mock_api, window=mock_window)
+        execute_window_closing_shutdown(ctx)
 
         mock_audio_player.begin_shutdown.assert_called_once()
         mock_api.cleanup_preview_files.assert_called_once()
@@ -100,8 +117,9 @@ class TestExecuteWindowClosingShutdown:
         fake._original_evaluate_js = None  # explicitly None — guard passes
 
         old_evaluate_js = fake.evaluate_js
+        ctx = AppContext(audio_player=mock_audio_player, api=mock_api, window=fake)
 
-        execute_window_closing_shutdown(mock_audio_player, mock_api, fake)
+        execute_window_closing_shutdown(ctx)
 
         # evaluate_js should be replaced with a function
         assert fake.evaluate_js is not old_evaluate_js
@@ -109,8 +127,9 @@ class TestExecuteWindowClosingShutdown:
 
     def test_patched_evaluate_js_noops_when_shutting_down(self, mock_audio_player, mock_api, mock_window):
         """Patched evaluate_js returns None when _shutting_down is True."""
+        ctx = _make_ctx(mock_audio_player, mock_api, window=mock_window)
         with patch.object(mock_window, "_original_evaluate_js", None, create=True):
-            execute_window_closing_shutdown(mock_audio_player, mock_api, mock_window)
+            execute_window_closing_shutdown(ctx)
 
         mock_audio_player._shutting_down = True
         result = mock_window.evaluate_js("someScript()")
@@ -126,7 +145,8 @@ class TestExecuteWindowClosingShutdown:
         fake.evaluate_js = MagicMock(return_value="ok")
         fake._original_evaluate_js = None
 
-        execute_window_closing_shutdown(mock_audio_player, mock_api, fake)
+        ctx = AppContext(audio_player=mock_audio_player, api=mock_api, window=fake)
+        execute_window_closing_shutdown(ctx)
 
         mock_audio_player._shutting_down = False
         fake.evaluate_js("someScript()")
@@ -136,24 +156,26 @@ class TestExecuteWindowClosingShutdown:
 
     def test_reentrancy_guard_applies_patch_only_once(self, mock_audio_player, mock_api, mock_window):
         """Double-calling execute_window_closing_shutdown: second call is no-op for patching."""
+        ctx = _make_ctx(mock_audio_player, mock_api, window=mock_window)
         with patch.object(mock_window, "_original_evaluate_js", None, create=True):
-            execute_window_closing_shutdown(mock_audio_player, mock_api, mock_window)
+            execute_window_closing_shutdown(ctx)
 
         # After first call, _original_evaluate_js is set to the original evaluate_js
         # Second call: guard sees _original_evaluate_js is not None → skips re-patch
         # Should not raise
-        execute_window_closing_shutdown(mock_audio_player, mock_api, mock_window)
+        execute_window_closing_shutdown(ctx)
 
     def test_reentrancy_guard_both_paths(self, mock_audio_player, mock_api, mock_tray, mock_window):
         """When quit_shutdown fires after window_closing_shutdown, the
         evaluate_js patch is NOT re-applied (reentrancy guard)."""
+        ctx = _make_ctx(mock_audio_player, mock_api, mock_tray, mock_window)
         # First: window closing path patches evaluate_js
         with patch.object(mock_window, "_original_evaluate_js", None, create=True):
-            execute_window_closing_shutdown(mock_audio_player, mock_api, mock_window)
+            execute_window_closing_shutdown(ctx)
 
         # Then: quit path runs (which does NOT call execute_window_closing_shutdown)
         with patch("src.main.shutdown_event_loop"):
-            execute_quit_shutdown(mock_audio_player, mock_api, mock_tray, mock_window)
+            execute_quit_shutdown(ctx)
 
         # Should not raise — both paths completed
 
