@@ -271,6 +271,16 @@ def main():
 
     def _on_loaded():
         logger.info("WebView loaded event triggered")
+
+        # Ref: #165 — Inject theme from Python config as window.__INITIAL_THEME__
+        # BEFORE React renders.  pywebview creates a fresh browser context
+        # every launch, so localStorage is always empty on startup.  The injected
+        # global lets useTheme.ts use the persisted Python config as source of
+        # truth instead of falling back to system preference and overwriting the
+        # user's saved theme via set_config().
+        theme = config.get("theme") or "dark"
+        window.evaluate_js(f'window.__INITIAL_THEME__ = "{theme}";')
+
         ok = inject_audio_bridge_js(window, _bridge_js_path)
         if ok:
             logger.info("Audio player bridge JS successfully injected")
