@@ -496,8 +496,6 @@ Task 6 (design doc) — 獨立，無依賴
 
 預估總變更量：~330 lines（不含 design doc）。
 
-預估總變更量：~300 lines（不含 design doc）。
-
 ---
 
 ## Estimated Complexity
