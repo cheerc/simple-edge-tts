@@ -32,7 +32,7 @@ const TTSResultSchema = z.object({
 
 const ConfigValueSchema = z.object({
   value: z.unknown(),
-});
+}).required();
 
 const ConfigSetResultSchema = z.object({
   success: z.boolean(),
