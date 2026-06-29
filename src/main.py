@@ -10,9 +10,11 @@ Ref: T16 — PyWebView entry point + IPC bridge
 Ref: T20 — System tray via pystray
 """
 
+import atexit
 import logging
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import webview
@@ -158,11 +160,27 @@ def main():
     _ensure_selector_policy()
 
     config = ConfigManager()
+
+    # Ref: #143 — Clean up leftover preview tempfiles from previous crashed
+    # sessions. os._exit(0) bypasses atexit, so stale set_preview_*.mp3 may
+    # accumulate in the system temp directory across runs.
+    _temp_dir = Path(tempfile.gettempdir())
+    for _stale in _temp_dir.glob("set_preview_*.mp3"):
+        try:
+            _stale.unlink(missing_ok=True)
+        except OSError:
+            pass
+
     i18n = I18n(config.get("language"), translations_dir=TRANSLATIONS_DIR)
     tts_engine = TTSEngine()
     audio_player = AudioPlayer()
 
     api = Api(tts_engine, config, audio_player, i18n)
+
+    # Ref: #143 — Safety net: register atexit handler so preview tempfiles
+    # are cleaned up even when Python exits unexpectedly (unhandled
+    # exception, sys.exit(), etc.).  Does NOT fire on os._exit(0).
+    atexit.register(api.cleanup_preview_files)
 
     url = _get_frontend_url()
     logger.info("Loading frontend URL: %s", url)
@@ -253,11 +271,16 @@ def main():
     # title-bar X, not via tray Quit). Ensures event loop thread is joined
     # and tray is stopped so Python exits cleanly.
     # All calls are idempotent so safe to run even if _on_quit() already did them.
+    # Ref: #145 — Wrapped in try/except to guarantee os._exit(0) always
+    # executes, even if a cleanup step raises unexpectedly.
     logger.info("webview.start() finished. Starting normal exit cleanup...")
-    audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
-    api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles before os._exit(0)
-    tray.stop()
-    shutdown_event_loop()
+    try:
+        audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
+        api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles before os._exit(0)
+        tray.stop()
+        shutdown_event_loop()
+    except Exception:
+        logger.exception("Exception during normal exit cleanup — forcing exit anyway")
     logger.info("Normal exit cleanup complete. Exiting process.")
     os._exit(0)  # Ref: #77 — force-exit to prevent hang from pywebview
                  # _call threads stuck on Semaphore.acquire() during
