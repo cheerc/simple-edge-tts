@@ -533,7 +533,6 @@ class TestCheckUpdate:
 
     def test_returns_result_from_checker(self, api, mock_config):
         """check_update() returns the UpdateChecker result as JSON."""
-        mock_config.get.return_value = None  # skip_version
         mock_result = {"latest": "1.0.0", "url": "https://example.com"}
         with patch.object(Api, "_get_app_version", return_value="0.1.0"):
             with patch("src.update_checker.UpdateChecker") as mock_checker_cls:
@@ -543,10 +542,12 @@ class TestCheckUpdate:
                 result = api.check_update()
         parsed = json.loads(result)
         assert parsed == mock_result
+        # Ref: #184 — manual check auto-clears skip_version
+        mock_config.set.assert_called_with("skip_version", None)
+        mock_config.save.assert_called_once()
 
-    def test_passes_skip_version_to_checker(self, api, mock_config):
-        """check_update() passes skip_version from config to UpdateChecker."""
-        mock_config.get.return_value = "0.9.0"  # skip_version
+    def test_manual_check_clears_skip_version(self, api, mock_config):
+        """check_update() clears skip_version before checking (Ref: #184)."""
         mock_result = {"latest": "1.0.0", "url": "https://example.com"}
         with patch.object(Api, "_get_app_version", return_value="0.1.0"):
             with patch("src.update_checker.UpdateChecker") as mock_checker_cls:
@@ -554,9 +555,12 @@ class TestCheckUpdate:
                 mock_checker.check.return_value = mock_result
                 mock_checker_cls.return_value = mock_checker
                 api.check_update()
-                # Verify UpdateChecker was constructed with skip_version
+                # Verify UpdateChecker was constructed WITHOUT skip_version
                 call_args = mock_checker_cls.call_args
-                assert call_args.kwargs.get("skip_version") == "0.9.0"
+                assert call_args == (("0.1.0",),)
+                # Verify skip_version was cleared from config
+                mock_config.set.assert_called_with("skip_version", None)
+                mock_config.save.assert_called_once()
 
     def test_get_app_version_fallback_to_pyproject_toml(self, api):
         """_get_app_version() falls back to pyproject.toml when package metadata missing."""

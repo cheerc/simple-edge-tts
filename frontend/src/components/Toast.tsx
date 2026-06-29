@@ -7,7 +7,19 @@
  * Ref: T18 Plan §4 — Toast System
  */
 
-import type { ToastItem } from "../types";
+import type { ToastItem, ToastMessage } from "../types";
+
+/** Resolve a ToastMessage to a rendered string. */
+function resolveMessage(msg: ToastMessage, t: (key: string) => string): string {
+  if (typeof msg === "string") return msg;
+  let text = t(msg.key);
+  if (msg.params) {
+    for (const [k, v] of Object.entries(msg.params)) {
+      text = text.replace(`{${k}}`, v);
+    }
+  }
+  return text;
+}
 
 interface ToastProps {
   toasts: ToastItem[];
@@ -54,8 +66,8 @@ export function Toast({ toasts, onRemove, t }: ToastProps) {
           onClick={() => onRemove(toast.id)}
           role="status"
         >
-          <div style={{ marginBottom: (toast.progress !== undefined || (toast.actions && toast.actions.length > 0)) ? "var(--space-2)" : 0 }}>
-            {toast.message}
+          <div style={{ marginBottom: (toast.progress !== undefined || (toast.actions && toast.actions.length > 0)) ? "var(--space-2)" : 0, textAlign: "center" }}>
+            {resolveMessage(toast.message, t)}
           </div>
           {toast.progress !== undefined && (
             <div
@@ -79,7 +91,7 @@ export function Toast({ toasts, onRemove, t }: ToastProps) {
             </div>
           )}
           {toast.actions && toast.actions.length > 0 && (
-            <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "center" }}>
               {toast.actions.map((action, idx) => (
                 <button
                   key={idx}

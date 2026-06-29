@@ -53,7 +53,7 @@ function App() {
         const update = await api.checkUpdate();
         if (!cancelled && update) {
           addToast(
-            t("update_available").replace("{version}", update.latest),
+            { key: "update_available", params: { version: update.latest } },
             "info",
             [
               {

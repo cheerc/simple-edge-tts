@@ -6,13 +6,13 @@
  */
 
 import { useState, useCallback, useRef } from "react";
-import type { ToastItem, ToastVariant, ToastAction } from "../types";
+import type { ToastItem, ToastVariant, ToastAction, ToastMessage } from "../types";
 
 let toastCounter = 0;
 
 export interface UseToastReturn {
   toasts: ToastItem[];
-  addToast: (message: string, variant?: ToastVariant, actions?: ToastAction[], durationMs?: number) => string;
+  addToast: (message: ToastMessage, variant?: ToastVariant, actions?: ToastAction[], durationMs?: number) => string;
   removeToast: (id: string) => void;
   /** Update an existing toast's message, actions, progress, variant, or duration. */
   updateToast: (id: string, updates: Partial<Pick<ToastItem, 'message' | 'actions' | 'progress' | 'durationMs' | 'variant'>>) => void;
@@ -32,7 +32,7 @@ export function useToast(): UseToastReturn {
   }, []);
 
   const addToast = useCallback(
-    (message: string, variant: ToastVariant = "info", actions?: ToastAction[], durationMs?: number): string => {
+    (message: ToastMessage, variant: ToastVariant = "info", actions?: ToastAction[], durationMs?: number): string => {
       const id = `toast-${++toastCounter}`;
       const effectiveDuration = durationMs ?? (actions && actions.length > 0 ? 15000 : 4000);
       const item: ToastItem = { id, message, variant, actions, durationMs: effectiveDuration };

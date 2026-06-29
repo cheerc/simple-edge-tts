@@ -424,6 +424,9 @@ class Api:
         Non-blocking from the frontend's perspective (called once on mount).
         Fails silently on network error.
 
+        Manual check (user clicked "Check for Updates") = active user intent
+        → auto-clear skip_version so the user sees the real update status.
+
         Returns:
             JSON with {'latest': str, 'url': str} if update available,
             or JSON null if up-to-date / offline / error.
@@ -432,8 +435,10 @@ class Api:
             from src.update_checker import UpdateChecker
 
             current = self._get_app_version()
-            skip = self._config.get("skip_version")
-            checker = UpdateChecker(current, skip_version=skip)
+            # Ref: #184 — manual check should not be suppressed by skip_version
+            self._config.set("skip_version", None)
+            self._config.save()
+            checker = UpdateChecker(current)
             result = checker.check()
             return json.dumps(result)
         except Exception as e:

@@ -71,10 +71,13 @@ export interface ToastAction {
   onClick: () => void;
 }
 
+/** i18n-reactive message: plain string for static text, or { key, params } for t()-resolved text. */
+export type ToastMessage = string | { key: string; params?: Record<string, string> };
+
 /** Toast notification item. */
 export interface ToastItem {
   id: string;
-  message: string;
+  message: ToastMessage;
   variant: ToastVariant;
   actions?: ToastAction[];
   durationMs?: number;

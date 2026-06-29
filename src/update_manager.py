@@ -320,9 +320,11 @@ class UpdateManager:
                             break
                         f.write(chunk)
                         downloaded += len(chunk)
-                        if on_progress and total_bytes:
+                        if total_bytes:
                             pct = min(int(downloaded / total_bytes * 100), 100)
-                            on_progress(pct)
+                            self._progress = pct
+                            if on_progress:
+                                on_progress(pct)
         except UpdateError:
             # Clean up partial download on cancel
             if out_path.exists():
