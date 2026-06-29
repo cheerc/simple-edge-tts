@@ -71,10 +71,13 @@ export interface ToastAction {
   onClick: () => void;
 }
 
+/** i18n-reactive message: plain string for static text, or { key, params } for t()-resolved text. */
+export type ToastMessage = string | { key: string; params?: Record<string, string> };
+
 /** Toast notification item. */
 export interface ToastItem {
   id: string;
-  message: string;
+  message: ToastMessage;
   variant: ToastVariant;
   actions?: ToastAction[];
   durationMs?: number;
@@ -97,7 +100,7 @@ export interface PyWebViewApi {
   get_translations(): Promise<string>;
   play_audio(file_path: string): Promise<string>;
   stop_audio(): Promise<string>;
-  check_update(): Promise<string>;
+  check_update(manual?: boolean): Promise<string>;
   get_output_dir(): Promise<string>;
   select_output_dir(): Promise<string>;
   // Ref: #179 — Auto-update download & install
