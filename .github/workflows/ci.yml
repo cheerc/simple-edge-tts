@@ -78,6 +78,12 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # Ref: #161 — Standalone typecheck step catches type errors
+      # before the full build, giving clearer error attribution.
+      - name: Frontend — typecheck (tsc)
+        working-directory: frontend
+        run: npx tsc -b
+
       - name: Frontend — build (TypeScript + Vite)
         working-directory: frontend
         run: npm run build

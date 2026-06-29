@@ -78,6 +78,9 @@ do_build() {
     info "Version: ${VERSION} (from pyproject.toml)"
 
     # Build frontend assets
+    # Ref: #160 — npm ci ensures node_modules matches lockfile before build.
+    info "Installing frontend dependencies..."
+    (cd frontend && npm ci) || fail "Frontend npm ci"
     info "Building frontend..."
     (cd frontend && npm run build) || fail "Frontend build"
     pass "Frontend build"
