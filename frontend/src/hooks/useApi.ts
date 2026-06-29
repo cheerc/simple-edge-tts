@@ -80,7 +80,7 @@ function validate<T>(raw: string, schema: z.ZodSchema<T>, label: string): T {
       `[${label}] API response shape mismatch: ${result.error.message} — raw: ${raw.slice(0, 200)}`
     );
   }
-  return result.data;
+  return result.data as T;
 }
 
 // ── Hook return type ───────────────────────────────────────────────────
