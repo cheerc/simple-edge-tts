@@ -532,29 +532,33 @@ class TestCheckUpdate:
         assert parsed == {"error": "version error"}
 
     def test_returns_result_from_checker(self, api, mock_config):
-        """check_update() returns the UpdateChecker result as JSON."""
+        """check_update() returns the UpdateChecker result as JSON (auto-check, respects skip)."""
+        mock_config.get.return_value = "0.9.0"  # skip_version
         mock_result = {"latest": "1.0.0", "url": "https://example.com"}
         with patch.object(Api, "_get_app_version", return_value="0.1.0"):
             with patch("src.update_checker.UpdateChecker") as mock_checker_cls:
                 mock_checker = MagicMock()
                 mock_checker.check.return_value = mock_result
                 mock_checker_cls.return_value = mock_checker
-                result = api.check_update()
+                result = api.check_update()  # auto-check (manual=False)
         parsed = json.loads(result)
         assert parsed == mock_result
-        # Ref: #184 — manual check auto-clears skip_version
-        mock_config.set.assert_called_with("skip_version", None)
-        mock_config.save.assert_called_once()
+        # Auto-check passes skip_version to UpdateChecker
+        call_args = mock_checker_cls.call_args
+        assert call_args.kwargs.get("skip_version") == "0.9.0"
+        # Auto-check does NOT clear skip_version
+        mock_config.set.assert_not_called()
+        mock_config.save.assert_not_called()
 
     def test_manual_check_clears_skip_version(self, api, mock_config):
-        """check_update() clears skip_version before checking (Ref: #184)."""
+        """check_update(manual=True) clears skip_version before checking (Ref: #184)."""
         mock_result = {"latest": "1.0.0", "url": "https://example.com"}
         with patch.object(Api, "_get_app_version", return_value="0.1.0"):
             with patch("src.update_checker.UpdateChecker") as mock_checker_cls:
                 mock_checker = MagicMock()
                 mock_checker.check.return_value = mock_result
                 mock_checker_cls.return_value = mock_checker
-                api.check_update()
+                api.check_update(manual=True)
                 # Verify UpdateChecker was constructed WITHOUT skip_version
                 call_args = mock_checker_cls.call_args
                 assert call_args == (("0.1.0",),)

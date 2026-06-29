@@ -15,7 +15,7 @@ function resolveMessage(msg: ToastMessage, t: (key: string) => string): string {
   let text = t(msg.key);
   if (msg.params) {
     for (const [k, v] of Object.entries(msg.params)) {
-      text = text.replace(`{${k}}`, v);
+      text = text.replaceAll(`{${k}}`, v);
     }
   }
   return text;

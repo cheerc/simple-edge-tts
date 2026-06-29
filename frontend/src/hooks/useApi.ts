@@ -101,7 +101,7 @@ export interface UseApiReturn {
   getTranslations: () => Promise<TranslationData>;
   playAudio: (path: string) => Promise<AudioResult>;
   stopAudio: () => Promise<AudioResult>;
-  checkUpdate: () => Promise<UpdateInfo | null>;
+  checkUpdate: (manual?: boolean) => Promise<UpdateInfo | null>;
   getOutputDir: () => Promise<OutputDirResult>;
   selectOutputDir: () => Promise<OutputDirResult>;
   /** Start background download of the latest release. Returns initial state. */
@@ -198,8 +198,8 @@ export function useApi(): UseApiReturn {
     return validate<AudioResult>(result, AudioResultSchema, "stopAudio");
   }, [getApi]);
 
-  const checkUpdate = useCallback(async (): Promise<UpdateInfo | null> => {
-    const result = await getApi().check_update();
+  const checkUpdate = useCallback(async (manual = false): Promise<UpdateInfo | null> => {
+    const result = await getApi().check_update(manual);
     const parsed = JSON.parse(result);
     if (parsed === null) return null;
     if (parsed.error) {

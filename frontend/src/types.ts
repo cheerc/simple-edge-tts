@@ -100,7 +100,7 @@ export interface PyWebViewApi {
   get_translations(): Promise<string>;
   play_audio(file_path: string): Promise<string>;
   stop_audio(): Promise<string>;
-  check_update(): Promise<string>;
+  check_update(manual?: boolean): Promise<string>;
   get_output_dir(): Promise<string>;
   select_output_dir(): Promise<string>;
   // Ref: #179 — Auto-update download & install

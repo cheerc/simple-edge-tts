@@ -418,14 +418,17 @@ class Api:
         self._audio_player.notify_playback_finished()
 
     @log_api_call
-    def check_update(self) -> str:
+    def check_update(self, manual: bool = False) -> str:
         """Check GitHub for a newer release.
 
         Non-blocking from the frontend's perspective (called once on mount).
         Fails silently on network error.
 
-        Manual check (user clicked "Check for Updates") = active user intent
-        → auto-clear skip_version so the user sees the real update status.
+        Args:
+            manual: True when user clicked "Check for Updates" button.
+                    Only manual checks auto-clear skip_version so the user
+                    sees the real update status. Auto-checks (mount-time)
+                    respect the skip to avoid re-prompting every startup.
 
         Returns:
             JSON with {'latest': str, 'url': str} if update available,
@@ -436,9 +439,13 @@ class Api:
 
             current = self._get_app_version()
             # Ref: #184 — manual check should not be suppressed by skip_version
-            self._config.set("skip_version", None)
-            self._config.save()
-            checker = UpdateChecker(current)
+            if manual:
+                self._config.set("skip_version", None)
+                self._config.save()
+                checker = UpdateChecker(current)
+            else:
+                skip = self._config.get("skip_version")
+                checker = UpdateChecker(current, skip_version=skip)
             result = checker.check()
             return json.dumps(result)
         except Exception as e:
