@@ -52,7 +52,36 @@ export function Toast({ toasts, onRemove }: ToastProps) {
           onClick={() => onRemove(toast.id)}
           role="status"
         >
-          {toast.message}
+          <div style={{ marginBottom: toast.actions && toast.actions.length > 0 ? "var(--space-2)" : 0 }}>
+            {toast.message}
+          </div>
+          {toast.actions && toast.actions.length > 0 && (
+            <div style={{ display: "flex", gap: "var(--space-2)" }}>
+              {toast.actions.map((action, idx) => (
+                <button
+                  key={idx}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    action.onClick();
+                    onRemove(toast.id);
+                  }}
+                  style={{
+                    height: 36,
+                    padding: "0 var(--space-3)",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    border: idx === 0 ? "none" : "1px solid var(--color-text-secondary)",
+                    borderRadius: "var(--radius-md)",
+                    background: idx === 0 ? "var(--primary)" : "transparent",
+                    color: idx === 0 ? "var(--primary-foreground)" : "var(--color-text-secondary)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>

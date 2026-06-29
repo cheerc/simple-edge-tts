@@ -48,5 +48,14 @@
   "theme_toggle": "切換主題",
   "update_available": "新版本 {version} 可用！",
   "update_download": "前往下載",
-  "update_skip": "略過"
+  "update_skip": "略過",
+  "update_section_title": "更新",
+  "update_auto_check": "自動檢查更新",
+  "update_auto_check_desc": "啟動應用程式時自動檢查新版本",
+  "update_check_now": "檢查更新",
+  "update_checking": "檢查中...",
+  "update_up_to_date": "已是最新版本！",
+  "update_skipped_version": "已略過：v{version}",
+  "update_clear_skip": "清除略過",
+  "update_error": "更新檢查失敗"
 }

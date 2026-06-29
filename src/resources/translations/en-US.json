@@ -48,5 +48,14 @@
   "theme_toggle": "Toggle theme",
   "update_available": "Version {version} available!",
   "update_download": "Download",
-  "update_skip": "Skip"
+  "update_skip": "Skip",
+  "update_section_title": "Updates",
+  "update_auto_check": "Automatically check for updates",
+  "update_auto_check_desc": "Check for new versions when the app starts",
+  "update_check_now": "Check for Updates",
+  "update_checking": "Checking...",
+  "update_up_to_date": "You're up to date!",
+  "update_skipped_version": "Skipped: v{version}",
+  "update_clear_skip": "Clear",
+  "update_error": "Update check failed"
 }

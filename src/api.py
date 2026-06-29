@@ -437,7 +437,7 @@ class Api:
             return json.dumps(result)
         except Exception as e:
             logger.debug("check_update failed: %s", e)
-            return json.dumps(None)
+            return json.dumps({"error": str(e)})
 
     @log_api_call
     def set_window(self, window: object) -> None:

@@ -35,17 +35,34 @@ function App() {
   const [outputDir, setOutputDir] = useState("");
 
   // Check for updates on mount (non-blocking, fail-silent)
+  // Ref: #170 — respect auto_check_update config
   useEffect(() => {
     if (!api.ready) return;
     let cancelled = false;
 
     async function checkForUpdate() {
       try {
+        // Only check if auto_check_update is not explicitly false
+        const config = await api.getConfig("auto_check_update");
+        if (config && config.value === false) return;
+
         const update = await api.checkUpdate();
         if (!cancelled && update) {
           addToast(
-            `${t("update_available").replace("{version}", update.latest)} → ${update.url}`,
-            "info"
+            t("update_available").replace("{version}", update.latest),
+            "info",
+            [
+              {
+                label: t("update_download"),
+                onClick: () => window.open(update.url, "_blank"),
+              },
+              {
+                label: t("update_skip"),
+                onClick: async () => {
+                  await api.setConfig("skip_version", update.latest);
+                },
+              },
+            ]
           );
         }
       } catch {

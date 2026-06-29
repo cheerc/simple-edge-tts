@@ -17,6 +17,8 @@ DEFAULTS = {
     "window_geometry": {"x": 100, "y": 100, "w": 900, "h": 600},
     "enable_file_logging": False,
     "theme": "dark",
+    "auto_check_update": True,
+    "skip_version": None,
 }
 
 
