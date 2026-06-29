@@ -72,7 +72,7 @@ def _get_loop() -> asyncio.AbstractEventLoop:
             logger.debug("Creating persistent event loop")
             _loop = asyncio.new_event_loop()
             # Ref: #43 — Use a self-managed executor so atexit doesn't kill it
-            _loop.set_default_executor(ThreadPoolExecutor(max_workers=4))
+            _loop.set_default_executor(ThreadPoolExecutor(max_workers=8))
             _thread = threading.Thread(
                 target=_loop.run_forever, daemon=True, name="async-event-loop"
             )
@@ -95,13 +95,20 @@ def run_async(coro) -> Any:
     Raises:
         TimeoutError: If the coroutine doesn't complete within the timeout.
     """
+    import time as _time
+    _start = _time.monotonic()
     loop = _get_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     logger.debug("Waiting for coroutine on event loop (timeout=%ds)", _RUN_ASYNC_TIMEOUT)
     try:
-        return future.result(timeout=_RUN_ASYNC_TIMEOUT)
+        result = future.result(timeout=_RUN_ASYNC_TIMEOUT)
+        _elapsed = _time.monotonic() - _start
+        logger.info("run_async completed in %.2fs", _elapsed)
+        return result
     except TimeoutError:
-        logger.warning("run_async timed out after %ds, cancelling coroutine to prevent leakage", _RUN_ASYNC_TIMEOUT)
+        _elapsed = _time.monotonic() - _start
+        logger.warning("run_async timed out after %.2fs (limit=%ds), cancelling coroutine to prevent leakage",
+                       _elapsed, _RUN_ASYNC_TIMEOUT)
         future.cancel()
         raise
 
