@@ -1,6 +1,10 @@
 """Tests for config_manager — read/write config, defaults, corrupt file recovery."""
 
 import json
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
 from src.config_manager import ConfigManager
 
 
@@ -77,3 +81,80 @@ class TestConfigManagerEdgeCases:
         cm.save()
         assert nested.exists()
         assert (nested / "config.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# _get_config_dir()
+# ---------------------------------------------------------------------------
+
+
+class TestGetConfigDir:
+    """Tests for _get_config_dir() — cross-platform config directory resolution."""
+
+    def test_macos_config_dir(self):
+        """On macOS, config dir is ~/Library/Application Support/simple-edge-tts/"""
+        from src.config_manager import _get_config_dir
+        with patch.object(sys, "platform", "darwin"):
+            result = _get_config_dir()
+        expected = Path.home() / "Library" / "Application Support" / "simple-edge-tts"
+        assert result == expected
+
+    def test_windows_config_dir(self):
+        """On Windows, config dir is %APPDATA%/simple-edge-tts/config/ when not frozen."""
+        from src.config_manager import _get_config_dir
+        fake_appdata = Path(r"C:\Users\test\AppData\Roaming")
+        with patch.object(sys, "platform", "win32"):
+            with patch.object(sys, "frozen", False, create=True):
+                with patch.dict("os.environ", {"APPDATA": str(fake_appdata)}):
+                    result = _get_config_dir()
+        expected = fake_appdata / "simple-edge-tts" / "config"
+        assert result == expected
+
+    def test_windows_frozen_writable_config_dir(self):
+        """On Windows when frozen and the exe dir is writable, config dir is the exe directory."""
+        from src.config_manager import _get_config_dir
+        fake_exe = "D:/Program Files/simple-edge-tts/simple-edge-tts.exe"
+        with patch.object(sys, "platform", "win32"):
+            with patch.object(sys, "frozen", True, create=True):
+                with patch.object(sys, "executable", fake_exe):
+                    with patch("pathlib.Path.touch") as mock_touch, patch("pathlib.Path.unlink") as mock_unlink:
+                        result = _get_config_dir()
+                        mock_touch.assert_called_once()
+                        mock_unlink.assert_called_once()
+        expected = Path("D:/Program Files/simple-edge-tts")
+        assert result == expected
+
+    def test_windows_frozen_readonly_fallback(self):
+        """On Windows when frozen but exe dir is not writable, fall back to APPDATA."""
+        from src.config_manager import _get_config_dir
+        fake_exe = "D:/Program Files/simple-edge-tts/simple-edge-tts.exe"
+        fake_appdata = Path(r"C:\Users\test\AppData\Roaming")
+        with patch.object(sys, "platform", "win32"):
+            with patch.object(sys, "frozen", True, create=True):
+                with patch.object(sys, "executable", fake_exe):
+                    with patch.dict("os.environ", {"APPDATA": str(fake_appdata)}):
+                        with patch("pathlib.Path.touch", side_effect=PermissionError()):
+                            result = _get_config_dir()
+        expected = fake_appdata / "simple-edge-tts" / "config"
+        assert result == expected
+
+    def test_linux_config_dir(self):
+        """On Linux, config dir is $XDG_CONFIG_HOME/simple-edge-tts/"""
+        from src.config_manager import _get_config_dir
+        with patch.object(sys, "platform", "linux"):
+            result = _get_config_dir()
+        expected = Path.home() / ".config" / "simple-edge-tts"
+        assert result == expected
+
+
+# ---------------------------------------------------------------------------
+# enable_file_logging default (spec #105)
+# ---------------------------------------------------------------------------
+
+
+class TestEnableFileLoggingDefault:
+    """Test that enable_file_logging defaults to False (per spec #105)."""
+
+    def test_enable_file_logging_default_is_false(self, tmp_path):
+        cm = ConfigManager(config_dir=tmp_path)
+        assert cm.get("enable_file_logging") is False

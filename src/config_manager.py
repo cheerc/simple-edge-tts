@@ -15,7 +15,7 @@ DEFAULTS = {
     "pitch": "+0Hz",
     "output_dir": str(Path.home() / "Desktop"),
     "window_geometry": {"x": 100, "y": 100, "w": 900, "h": 600},
-    "enable_file_logging": True,
+    "enable_file_logging": False,
     "theme": "dark",
 }
 
@@ -26,13 +26,28 @@ def _get_config_dir() -> Path:
     Uses OS-standard app data locations, separate from log directory.
 
     macOS:    ~/Library/Application Support/simple-edge-tts/
-    Windows:  %APPDATA%/simple-edge-tts/config/
+    Windows:  If running a frozen build, returns the folder containing the
+              executable (.exe) when writable.  Otherwise, falls back to
+              %APPDATA%/simple-edge-tts/config/
     Linux:    $XDG_CONFIG_HOME/simple-edge-tts/  (default ~/.config/simple-edge-tts/)
     """
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "simple-edge-tts"
 
     if sys.platform == "win32":
+        # Ref: #166 — frozen portable build: prefer exe directory so the
+        # .exe can run portably from a USB stick / folder without leaving
+        # traces in %APPDATA%.  Mirror _get_log_dir() write-test pattern.
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).parent
+            try:
+                test_file = exe_dir / ".config_write_test"
+                test_file.touch()
+                test_file.unlink()
+                return exe_dir
+            except Exception:
+                pass
+
         base = os.environ.get("APPDATA", "")
         if not base:
             base = str(Path.home() / "AppData" / "Roaming")
