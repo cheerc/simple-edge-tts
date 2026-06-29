@@ -12,8 +12,10 @@ let toastCounter = 0;
 
 export interface UseToastReturn {
   toasts: ToastItem[];
-  addToast: (message: string, variant?: ToastVariant, actions?: ToastAction[], durationMs?: number) => void;
+  addToast: (message: string, variant?: ToastVariant, actions?: ToastAction[], durationMs?: number) => string;
   removeToast: (id: string) => void;
+  /** Update an existing toast's message, actions, progress, variant, or duration. */
+  updateToast: (id: string, updates: Partial<Pick<ToastItem, 'message' | 'actions' | 'progress' | 'durationMs' | 'variant'>>) => void;
 }
 
 export function useToast(): UseToastReturn {
@@ -30,7 +32,7 @@ export function useToast(): UseToastReturn {
   }, []);
 
   const addToast = useCallback(
-    (message: string, variant: ToastVariant = "info", actions?: ToastAction[], durationMs?: number) => {
+    (message: string, variant: ToastVariant = "info", actions?: ToastAction[], durationMs?: number): string => {
       const id = `toast-${++toastCounter}`;
       const effectiveDuration = durationMs ?? (actions && actions.length > 0 ? 15000 : 4000);
       const item: ToastItem = { id, message, variant, actions, durationMs: effectiveDuration };
@@ -42,9 +44,36 @@ export function useToast(): UseToastReturn {
         }, effectiveDuration);
         timers.current.set(id, timer);
       }
+      return id;
     },
     [removeToast]
   );
 
-  return { toasts, addToast, removeToast };
+  const updateToast = useCallback(
+    (id: string, updates: Partial<Pick<ToastItem, 'message' | 'actions' | 'progress' | 'durationMs' | 'variant'>>) => {
+      setToasts((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t;
+          const updated = { ...t, ...updates };
+          // If duration changed, reset the auto-dismiss timer
+          if (updates.durationMs !== undefined) {
+            const oldTimer = timers.current.get(id);
+            if (oldTimer) clearTimeout(oldTimer);
+            if (updated.durationMs && updated.durationMs > 0) {
+              const newTimer = setTimeout(() => {
+                removeToast(id);
+              }, updated.durationMs);
+              timers.current.set(id, newTimer);
+            } else {
+              timers.current.delete(id);
+            }
+          }
+          return updated;
+        })
+      );
+    },
+    [removeToast]
+  );
+
+  return { toasts, addToast, removeToast, updateToast };
 }
