@@ -2,15 +2,89 @@
  * PyWebView IPC hook — wraps window.pywebview.api.* calls with typed responses.
  *
  * Handles the pywebviewready event to ensure API availability before calling.
- * All PyWebView API methods return JSON-encoded strings; this hook parses them.
+ * All PyWebView API methods return JSON-encoded strings; this hook parses and
+ * validates them against Zod schemas so IPC contract deviations surface as
+ * descriptive errors rather than silent type mismatches.
  *
  * Ref: T18 Plan §3 — IPC Hook
+ * Ref: #141 — Runtime schema validation
  */
 
+import { z } from "zod";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { Voice, TTSResult, ConfigValue, ConfigSetResult, TranslationData, AudioResult, UpdateInfo, OutputDirResult } from "../types";
 
-/** Hook return type. */
+// ── Zod schemas matching Python API return shapes ──────────────────────
+
+const VoiceSchema = z.object({
+  ShortName: z.string(),
+  Locale: z.string(),
+  Gender: z.string(),
+  FriendlyName: z.string(),
+});
+
+const VoiceArraySchema = z.array(VoiceSchema);
+
+const TTSResultSchema = z.object({
+  path: z.string().optional(),
+  error: z.string().optional(),
+});
+
+const ConfigValueSchema = z.object({
+  value: z.unknown(),
+});
+
+const ConfigSetResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
+const TranslationDataSchema = z.object({
+  language: z.string(),
+  strings: z.record(z.string(), z.string()),
+});
+
+const AudioResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
+const UpdateInfoSchema = z.object({
+  latest: z.string(),
+  url: z.string(),
+});
+
+const OutputDirResultSchema = z.object({
+  output_dir: z.string().optional(),
+  error: z.string().optional(),
+});
+
+// ── Validation helper ──────────────────────────────────────────────────
+
+/**
+ * Parse a JSON string and validate against a Zod schema.
+ *
+ * Throws a descriptive error on JSON parse failure OR schema mismatch so
+ * IPC contract deviations never propagate silently into the React tree.
+ */
+function validate<T>(raw: string, schema: z.ZodSchema<T>, label: string): T {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`[${label}] Invalid JSON response from API: ${raw.slice(0, 200)}`);
+  }
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      `[${label}] API response shape mismatch: ${result.error.message} — raw: ${raw.slice(0, 200)}`
+    );
+  }
+  return result.data;
+}
+
+// ── Hook return type ───────────────────────────────────────────────────
+
 export interface UseApiReturn {
   ready: boolean;
   getVoices: () => Promise<Voice[]>;
@@ -25,6 +99,8 @@ export interface UseApiReturn {
   getOutputDir: () => Promise<OutputDirResult>;
   selectOutputDir: () => Promise<OutputDirResult>;
 }
+
+// ── Hook implementation ────────────────────────────────────────────────
 
 export function useApi(): UseApiReturn {
   const [ready, setReady] = useState(!!window.pywebview);
@@ -49,15 +125,19 @@ export function useApi(): UseApiReturn {
 
   const getVoices = useCallback(async (): Promise<Voice[]> => {
     const result = await getApi().get_voices();
-    const parsed = JSON.parse(result);
-    if (parsed.error) throw new Error(parsed.error);
-    return parsed as Voice[];
+    const parsed = validate(result, VoiceArraySchema, "getVoices");
+    // Additionally check for inline error payload (Python may return {"error": ...})
+    const obj = JSON.parse(result);
+    if (obj && typeof obj === "object" && "error" in obj) {
+      throw new Error(String((obj as { error: unknown }).error));
+    }
+    return parsed;
   }, [getApi]);
 
   const generateTTS = useCallback(
     async (text: string, voice: string, rate: number, pitch: number): Promise<TTSResult> => {
       const result = await getApi().generate_tts(text, voice, rate, pitch);
-      return JSON.parse(result) as TTSResult;
+      return validate(result, TTSResultSchema, "generateTTS");
     },
     [getApi]
   );
@@ -65,7 +145,7 @@ export function useApi(): UseApiReturn {
   const previewTTS = useCallback(
     async (text: string, voice: string, rate: number, pitch: number): Promise<TTSResult> => {
       const result = await getApi().preview_tts(text, voice, rate, pitch);
-      return JSON.parse(result) as TTSResult;
+      return validate(result, TTSResultSchema, "previewTTS");
     },
     [getApi]
   );
@@ -73,7 +153,7 @@ export function useApi(): UseApiReturn {
   const getConfig = useCallback(
     async (key: string): Promise<ConfigValue> => {
       const result = await getApi().get_config(key);
-      return JSON.parse(result) as ConfigValue;
+      return validate(result, ConfigValueSchema, "getConfig");
     },
     [getApi]
   );
@@ -81,42 +161,44 @@ export function useApi(): UseApiReturn {
   const setConfig = useCallback(
     async (key: string, value: unknown): Promise<ConfigSetResult> => {
       const result = await getApi().set_config(key, value);
-      return JSON.parse(result) as ConfigSetResult;
+      return validate(result, ConfigSetResultSchema, "setConfig");
     },
     [getApi]
   );
 
   const getTranslations = useCallback(async (): Promise<TranslationData> => {
     const result = await getApi().get_translations();
-    return JSON.parse(result) as TranslationData;
+    return validate(result, TranslationDataSchema, "getTranslations");
   }, [getApi]);
 
   const playAudio = useCallback(
     async (path: string): Promise<AudioResult> => {
       const result = await getApi().play_audio(path);
-      return JSON.parse(result) as AudioResult;
+      return validate(result, AudioResultSchema, "playAudio");
     },
     [getApi]
   );
 
   const stopAudio = useCallback(async (): Promise<AudioResult> => {
     const result = await getApi().stop_audio();
-    return JSON.parse(result) as AudioResult;
+    return validate(result, AudioResultSchema, "stopAudio");
   }, [getApi]);
 
   const checkUpdate = useCallback(async (): Promise<UpdateInfo | null> => {
     const result = await getApi().check_update();
-    return JSON.parse(result) as UpdateInfo | null;
+    const parsed = JSON.parse(result);
+    if (parsed === null) return null;
+    return validate(result, UpdateInfoSchema, "checkUpdate");
   }, [getApi]);
 
   const getOutputDir = useCallback(async (): Promise<OutputDirResult> => {
     const result = await getApi().get_output_dir();
-    return JSON.parse(result) as OutputDirResult;
+    return validate(result, OutputDirResultSchema, "getOutputDir");
   }, [getApi]);
 
   const selectOutputDir = useCallback(async (): Promise<OutputDirResult> => {
     const result = await getApi().select_output_dir();
-    return JSON.parse(result) as OutputDirResult;
+    return validate(result, OutputDirResultSchema, "selectOutputDir");
   }, [getApi]);
 
   return useMemo(

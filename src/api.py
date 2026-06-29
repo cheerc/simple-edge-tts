@@ -24,6 +24,14 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from src.tts_engine import TTSEngine, format_rate, format_pitch, make_output_filename, run_async
 
+# Ref: #142 — Typed exception handling for IPC boundary.
+# EdgeTTSException is the base for all edge_tts errors (network,
+# WebSocket, unexpected response, no-audio, etc.).
+try:
+    from edge_tts.exceptions import EdgeTTSException
+except ImportError:  # edge_tts not installed (e.g. CI without deps)
+    EdgeTTSException = Exception
+
 if TYPE_CHECKING:
     from src.audio_player import AudioPlayer
     from src.config_manager import ConfigManager
@@ -153,6 +161,12 @@ class Api:
                 {"path": str(output_path)},
                 ensure_ascii=False,
             )
+        except EdgeTTSException as e:
+            logger.error("TTS engine error during generation: %s", e)
+            return json.dumps({"error": str(e)})
+        except OSError as e:
+            logger.error("File I/O error during generation: %s", e)
+            return json.dumps({"error": str(e)})
         except Exception as e:
             logger.error("TTS generation failed: %s", e)
             return json.dumps({"error": str(e)})
@@ -209,6 +223,12 @@ class Api:
                 self._preview_tempfiles.append(Path(tmp_path))
 
             return json.dumps({"path": tmp_path}, ensure_ascii=False)
+        except EdgeTTSException as e:
+            logger.error("TTS engine error during preview: %s", e)
+            return json.dumps({"error": str(e)})
+        except OSError as e:
+            logger.error("File I/O error during preview: %s", e)
+            return json.dumps({"error": str(e)})
         except Exception as e:
             logger.error("TTS preview failed: %s", e)
             return json.dumps({"error": str(e)})
@@ -272,6 +292,9 @@ class Api:
             if key == "language" and isinstance(value, str):
                 self._i18n.set_language(value)
             return json.dumps({"success": True})
+        except OSError as e:
+            logger.error("File I/O error setting config %s: %s", key, e)
+            return json.dumps({"success": False, "error": str(e)})
         except Exception as e:
             logger.error("Failed to set config %s: %s", key, e)
             return json.dumps({"success": False, "error": str(e)})
@@ -302,6 +325,13 @@ class Api:
             JSON with 'success' boolean.
         """
         try:
+            # Ref: #144 — Validate that the file path is within allowed
+            # directories (output_dir or temp), matching get_audio_url().
+            if not self._is_path_within_allowed_dirs(Path(file_path)):
+                return json.dumps({
+                    "success": False,
+                    "error": "File path is outside allowed directories",
+                })
             self._audio_player.play(file_path)
             return json.dumps({"success": True})
         except Exception as e:
