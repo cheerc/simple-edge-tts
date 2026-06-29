@@ -33,7 +33,7 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
   // Ref: #170 — Auto-update UI state
   const [autoCheck, setAutoCheck] = useState(true);
   const [checking, setChecking] = useState(false);
-  const [checkResult, setCheckResult] = useState<{ latest?: string; upToDate?: boolean } | null>(null);
+  const [checkResult, setCheckResult] = useState<{ latest?: string; upToDate?: boolean; error?: boolean } | null>(null);
   const [skippedVersion, setSkippedVersion] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -144,7 +144,7 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
         setCheckResult({ upToDate: true });
       }
     } catch {
-      setCheckResult(null);
+      setCheckResult({ error: true });
     } finally {
       setChecking(false);
     }
@@ -487,7 +487,7 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
             </button>
 
             {/* Inline check result */}
-            {checkResult && (
+            {checkResult && !checkResult.error && (
               <p
                 style={{
                   fontSize: 12,
@@ -499,6 +499,18 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
                 {checkResult.upToDate
                   ? t("update_up_to_date")
                   : t("update_available").replace("{version}", checkResult.latest ?? "")}
+              </p>
+            )}
+            {checkResult?.error && (
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "var(--destructive)",
+                  margin: "var(--space-2) 0 0 0",
+                  lineHeight: 1.4,
+                }}
+              >
+                {t("update_error")}
               </p>
             )}
           </div>

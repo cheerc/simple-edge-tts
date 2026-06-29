@@ -36,10 +36,12 @@ export function useToast(): UseToastReturn {
       const item: ToastItem = { id, message, variant, actions, durationMs: effectiveDuration };
       setToasts((prev) => [...prev, item]);
 
-      const timer = setTimeout(() => {
-        removeToast(id);
-      }, effectiveDuration);
-      timers.current.set(id, timer);
+      if (effectiveDuration > 0) {
+        const timer = setTimeout(() => {
+          removeToast(id);
+        }, effectiveDuration);
+        timers.current.set(id, timer);
+      }
     },
     [removeToast]
   );
