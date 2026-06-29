@@ -54,9 +54,30 @@ export function Toast({ toasts, onRemove, t }: ToastProps) {
           onClick={() => onRemove(toast.id)}
           role="status"
         >
-          <div style={{ marginBottom: toast.actions && toast.actions.length > 0 ? "var(--space-2)" : 0 }}>
+          <div style={{ marginBottom: (toast.progress !== undefined || (toast.actions && toast.actions.length > 0)) ? "var(--space-2)" : 0 }}>
             {toast.message}
           </div>
+          {toast.progress !== undefined && (
+            <div
+              style={{
+                height: 4,
+                marginBottom: "var(--space-2)",
+                borderRadius: 2,
+                background: "var(--color-text-secondary)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.min(toast.progress, 100)}%`,
+                  background: "var(--primary)",
+                  borderRadius: 2,
+                  transition: "width 0.3s ease",
+                }}
+              />
+            </div>
+          )}
           {toast.actions && toast.actions.length > 0 && (
             <div style={{ display: "flex", gap: "var(--space-2)" }}>
               {toast.actions.map((action, idx) => (

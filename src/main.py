@@ -201,6 +201,11 @@ def main():
 
     api = Api(tts_engine, config, audio_player, i18n)
 
+    # Ref: #179 — Register shutdown callback so install_update() can run
+    # the full cleanup sequence (preview files, audio, tray, event loop)
+    # before restarting the app with the new version.
+    api.set_shutdown_handler(lambda: execute_quit_shutdown(ctx))
+
     # Ref: #143 — Safety net: register atexit handler so preview tempfiles
     # are cleaned up even when Python exits unexpectedly (unhandled
     # exception, sys.exit(), etc.).  Does NOT fire on os._exit(0).

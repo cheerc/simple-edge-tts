@@ -12,7 +12,7 @@
 
 import { z } from "zod";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { Voice, TTSResult, ConfigValue, ConfigSetResult, TranslationData, AudioResult, UpdateInfo, OutputDirResult } from "../types";
+import type { Voice, TTSResult, ConfigValue, ConfigSetResult, TranslationData, AudioResult, UpdateInfo, OutputDirResult, DownloadProgress } from "../types";
 
 // ── Zod schemas matching Python API return shapes ──────────────────────
 
@@ -59,6 +59,12 @@ const OutputDirResultSchema = z.object({
   error: z.string().optional(),
 });
 
+const DownloadProgressSchema = z.object({
+  state: z.string(),
+  progress: z.number(),
+  error: z.string().nullable(),
+});
+
 // ── Validation helper ──────────────────────────────────────────────────
 
 /**
@@ -98,6 +104,14 @@ export interface UseApiReturn {
   checkUpdate: () => Promise<UpdateInfo | null>;
   getOutputDir: () => Promise<OutputDirResult>;
   selectOutputDir: () => Promise<OutputDirResult>;
+  /** Start background download of the latest release. Returns initial state. */
+  downloadUpdate: () => Promise<{ state: string }>;
+  /** Poll download progress. Returns { state, progress, error }. */
+  getDownloadProgress: () => Promise<DownloadProgress>;
+  /** Cancel an in-progress download. */
+  cancelDownload: () => Promise<void>;
+  /** Install the downloaded update and restart the app. */
+  installUpdate: () => Promise<{ success: boolean; error?: string }>;
 }
 
 // ── Hook implementation ────────────────────────────────────────────────
@@ -204,6 +218,28 @@ export function useApi(): UseApiReturn {
     return validate<OutputDirResult>(result, OutputDirResultSchema, "selectOutputDir");
   }, [getApi]);
 
+  // Ref: #179 — Auto-update download & install IPC
+
+  const downloadUpdate = useCallback(async (): Promise<{ state: string }> => {
+    const result = await getApi().download_update();
+    const parsed = JSON.parse(result);
+    return parsed as { state: string };
+  }, [getApi]);
+
+  const getDownloadProgress = useCallback(async (): Promise<DownloadProgress> => {
+    const result = await getApi().get_download_progress();
+    return validate<DownloadProgress>(result, DownloadProgressSchema, "getDownloadProgress");
+  }, [getApi]);
+
+  const cancelDownload = useCallback(async (): Promise<void> => {
+    await getApi().cancel_download();
+  }, [getApi]);
+
+  const installUpdate = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    const result = await getApi().install_update();
+    return JSON.parse(result) as { success: boolean; error?: string };
+  }, [getApi]);
+
   return useMemo(
     () => ({
       ready,
@@ -218,6 +254,10 @@ export function useApi(): UseApiReturn {
       checkUpdate,
       getOutputDir,
       selectOutputDir,
+      downloadUpdate,
+      getDownloadProgress,
+      cancelDownload,
+      installUpdate,
     }),
     [
       ready,
@@ -232,6 +272,10 @@ export function useApi(): UseApiReturn {
       checkUpdate,
       getOutputDir,
       selectOutputDir,
+      downloadUpdate,
+      getDownloadProgress,
+      cancelDownload,
+      installUpdate,
     ]
   );
 }

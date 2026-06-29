@@ -57,5 +57,12 @@
   "update_up_to_date": "You're up to date!",
   "update_skipped_version": "Skipped: v{version}",
   "update_clear_skip": "Clear",
-  "update_error": "Update check failed"
+  "update_error": "Update check failed",
+  "update_downloading": "Downloading...",
+  "update_downloaded": "Downloaded — ready to install",
+  "update_install_restart": "Install & Restart",
+  "update_verifying": "Verifying...",
+  "update_download_error": "Download failed",
+  "update_install_now": "Download & Install",
+  "update_cancel": "Cancel"
 }

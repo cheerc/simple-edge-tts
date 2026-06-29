@@ -19,6 +19,8 @@ interface SettingsModalProps {
   t: (key: string) => string;
   language: string;
   onLanguageChange: (lang: string) => Promise<void>;
+  /** Ref: #179 — Start background download from Settings. */
+  onStartDownload?: () => void;
 }
 
 const LANGUAGES = [
@@ -26,7 +28,7 @@ const LANGUAGES = [
   { code: "zh-TW", label: "繁體中文" },
 ];
 
-export function SettingsModal({ open, onClose, api, t, language, onLanguageChange }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, api, t, language, onLanguageChange, onStartDownload }: SettingsModalProps) {
   const [closing, setClosing] = useState(false);
   const [enableLogging, setEnableLogging] = useState(false);
   const [showRestartDialog, setShowRestartDialog] = useState(false);
@@ -500,6 +502,30 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
                   ? t("update_up_to_date")
                   : t("update_available").replace("{version}", checkResult.latest ?? "")}
               </p>
+            )}
+            {/* Ref: #179 — Download & Install button in Settings */}
+            {checkResult && !checkResult.upToDate && !checkResult.error && onStartDownload && (
+              <button
+                onClick={() => {
+                  onStartDownload();
+                  onClose();
+                }}
+                style={{
+                  marginTop: "var(--space-2)",
+                  height: 36,
+                  padding: "0 var(--space-3)",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  background: "var(--primary)",
+                  color: "var(--primary-foreground)",
+                  cursor: "pointer",
+                  width: "100%",
+                }}
+              >
+                {t("update_install_now")}
+              </button>
             )}
             {checkResult?.error && (
               <p

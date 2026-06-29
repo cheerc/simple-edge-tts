@@ -19,7 +19,7 @@ import tempfile
 import tempfile as _tempfile_module  # aliased for _is_path_within_allowed_dirs
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from xml.sax.saxutils import escape as _xml_escape
 
 from src.tts_engine import TTSEngine, format_rate, format_pitch, make_output_filename, run_async
@@ -102,6 +102,9 @@ class Api:
         self._audio_player = audio_player
         self._i18n = i18n
         self._window: Optional[Any] = None
+        # Ref: #179 — Shutdown callback for update install (cleanup before restart)
+        self._shutdown_handler: Callable[[], None] | None = None
+        self._update_manager: Any = None  # UpdateManager, lazy-init
         # Ref: #123 — Track preview tempfiles for cleanup before os._exit(0)
         # bypasses Python finalization. Protected by lock for concurrent
         # pywebview worker threads (reviewer finding F2).
@@ -490,6 +493,97 @@ class Api:
                         path, exc_info=True,
                     )
             self._preview_tempfiles.clear()
+
+    # ------------------------------------------------------------------
+    # Ref: #179 — Auto-update download & install IPC bridge
+    # ------------------------------------------------------------------
+
+    def set_shutdown_handler(self, handler: Callable[[], None]) -> None:
+        """Register a shutdown callback for install_update() to call before restart.
+
+        Called by main.py after Api is created, passing a lambda that runs
+        execute_quit_shutdown(ctx) to clean up preview files, stop audio,
+        stop system tray, and shut down the event loop.
+        """
+        self._shutdown_handler = handler
+
+    @log_api_call
+    def download_update(self) -> str:
+        """Start background download of the latest release.
+
+        Creates an UpdateManager, starts downloading in a daemon thread,
+        and returns the initial state immediately. The frontend polls
+        get_download_progress() for updates.
+        """
+        try:
+            from src.update_manager import UpdateManager
+
+            current = self._get_app_version()
+            self._update_manager = UpdateManager(current_version=current)
+
+            # fire-and-forget: download runs in background daemon thread;
+            # frontend polls get_download_progress() for status updates.
+            def _run_download():
+                try:
+                    self._update_manager.download()
+                except Exception as e:
+                    logger.debug("Background download failed: %s", e)
+
+            t = threading.Thread(target=_run_download, daemon=True)
+            t.start()
+
+            return json.dumps({"state": "downloading"})
+        except Exception as e:
+            logger.error("download_update failed: %s", e)
+            return json.dumps({"state": "error", "error": str(e)})
+
+    @log_api_call
+    def get_download_progress(self) -> str:
+        """Return current download state and progress percentage.
+
+        Returns JSON: {state, progress, error}.
+        """
+        if self._update_manager is None:
+            return json.dumps({"state": "idle", "progress": 0, "error": None})
+        info = self._update_manager.get_progress()
+        return json.dumps(info)
+
+    @log_api_call
+    def cancel_download(self) -> str:
+        """Cancel an in-progress download."""
+        if self._update_manager is not None:
+            self._update_manager.cancel()
+        return json.dumps({"success": True})
+
+    @log_api_call
+    def install_update(self) -> str:
+        """Install the downloaded update and restart the app.
+
+        Calls the registered shutdown handler first to clean up preview
+        files, stop audio, and shut down the event loop, then performs
+        the platform-specific install + restart.
+
+        Returns JSON: {success, error} (note: on success the app exits
+        before returning, so error-only in practice).
+        """
+        from src.update_manager import UpdateError
+
+        if self._update_manager is None:
+            return json.dumps({"success": False, "error": "No download in progress"})
+
+        if self._shutdown_handler is None:
+            return json.dumps({"success": False, "error": "Shutdown handler not registered"})
+
+        try:
+            self._update_manager.install(self._shutdown_handler)
+        except UpdateError as e:
+            return json.dumps({"success": False, "error": str(e)})
+
+        return json.dumps({"success": True})
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _get_effective_output_dir(self) -> str:
         """Return the effective output directory, falling back to Desktop."""

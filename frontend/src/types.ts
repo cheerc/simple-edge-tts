@@ -57,6 +57,13 @@ export interface OutputDirResult {
 /** Toast notification variant. */
 export type ToastVariant = "success" | "error" | "info";
 
+/** Download progress polled from backend. */
+export interface DownloadProgress {
+  state: string;
+  progress: number;
+  error: string | null;
+}
+
 /** Action button in a toast notification. */
 export interface ToastAction {
   /** Plain string for static label, or { key } for i18n-reactive translation via t(). */
@@ -71,6 +78,8 @@ export interface ToastItem {
   variant: ToastVariant;
   actions?: ToastAction[];
   durationMs?: number;
+  /** Download progress 0-100. Only set for download toasts. */
+  progress?: number;
 }
 
 /**
@@ -91,6 +100,11 @@ export interface PyWebViewApi {
   check_update(): Promise<string>;
   get_output_dir(): Promise<string>;
   select_output_dir(): Promise<string>;
+  // Ref: #179 — Auto-update download & install
+  download_update(): Promise<string>;
+  get_download_progress(): Promise<string>;
+  cancel_download(): Promise<string>;
+  install_update(): Promise<string>;
 }
 
 /** Augment the global Window interface for PyWebView. */

@@ -5,7 +5,7 @@
  * Per mockup v2 — T25 UI Layout Rework.
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 import { Header } from "./components/Header";
 import { VoiceSelector } from "./components/VoiceSelector";
@@ -20,9 +20,13 @@ import { useTheme } from "./hooks/useTheme";
 
 function App() {
   const api = useApi();
-  const { toasts, addToast, removeToast } = useToast();
+  const { toasts, addToast, removeToast, updateToast } = useToast();
   const { t, language, setLanguage } = useI18n(api);
   const { toggleTheme, isDark } = useTheme();
+
+  // Ref: #179 — Track download polling interval and current toast ID
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const downloadToastIdRef = useRef<string | null>(null);
 
   // Lifted state
   const [selectedVoice, setSelectedVoice] = useState("zh-TW-HsiaoChenNeural");
@@ -36,13 +40,13 @@ function App() {
 
   // Check for updates on mount (non-blocking, fail-silent)
   // Ref: #170 — respect auto_check_update config
+  // Ref: #179 — start download on click instead of opening browser
   useEffect(() => {
     if (!api.ready) return;
     let cancelled = false;
 
     async function checkForUpdate() {
       try {
-        // Only check if auto_check_update is not explicitly false
         const config = await api.getConfig("auto_check_update");
         if (config && config.value === false) return;
 
@@ -53,8 +57,8 @@ function App() {
             "info",
             [
               {
-                label: { key: "update_download" },
-                onClick: () => window.open(update.url, "_blank"),
+                label: { key: "update_install_now" },
+                onClick: () => { startDownload(); },
               },
               {
                 label: { key: "update_skip" },
@@ -73,6 +77,96 @@ function App() {
     checkForUpdate();
     return () => { cancelled = true; };
   }, [api, api.ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ref: #179 — Shared download→poll→install flow, reused by Settings modal
+  const stopPolling = useCallback(() => {
+    if (pollIntervalRef.current !== null) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }, []);
+
+  const startDownload = useCallback(async () => {
+    // Remove previous download toast if any
+    if (downloadToastIdRef.current) {
+      removeToast(downloadToastIdRef.current);
+    }
+    stopPolling();
+
+    try {
+      await api.downloadUpdate();
+    } catch {
+      addToast(t("update_download_error"), "error");
+      return;
+    }
+
+    const toastId = addToast(
+      t("update_downloading"),
+      "info",
+      [{ label: t("update_cancel"), onClick: () => { stopPolling(); api.cancelDownload(); removeToast(toastId); } }],
+      0  // no auto-dismiss during download
+    );
+    downloadToastIdRef.current = toastId;
+
+    // Poll every 500ms for progress updates
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const progress = await api.getDownloadProgress();
+
+        if (progress.state === "ready") {
+          stopPolling();
+          updateToast(toastId, {
+            message: t("update_downloaded"),
+            progress: undefined,
+            durationMs: 0,  // persist until user action
+            actions: [
+              {
+                label: { key: "update_install_restart" },
+                onClick: () => { installUpdate(); },
+              },
+            ],
+          });
+        } else if (progress.state === "error") {
+          stopPolling();
+          updateToast(toastId, {
+            message: progress.error || t("update_download_error"),
+            variant: "error",
+            progress: undefined,
+            actions: undefined,
+            durationMs: 8000,
+          });
+          downloadToastIdRef.current = null;
+        } else {
+          // downloading / verifying — update progress bar
+          updateToast(toastId, {
+            message: progress.state === "verifying"
+              ? t("update_verifying")
+              : `${t("update_downloading")} ${progress.progress}%`,
+            progress: progress.progress,
+          });
+        }
+      } catch {
+        // Poll failed silently — keep waiting
+      }
+    }, 500);
+  }, [api, t, addToast, updateToast, removeToast, stopPolling]);
+
+  const installUpdate = useCallback(async () => {
+    // Ref: #179 reviewer finding F4 — stop polling before install()
+    // to prevent IPC disconnect race during app restart
+    stopPolling();
+
+    try {
+      await api.installUpdate();
+    } catch {
+      addToast(t("update_download_error"), "error");
+    }
+  }, [api, t, addToast, stopPolling]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => { stopPolling(); };
+  }, [stopPolling]);
 
   // Load output directory on mount
   useEffect(() => {
@@ -257,6 +351,7 @@ function App() {
         t={t}
         language={language}
         onLanguageChange={setLanguage}
+        onStartDownload={startDownload}
       />
 
       {/* Toast system */}

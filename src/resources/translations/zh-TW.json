@@ -57,5 +57,12 @@
   "update_up_to_date": "已是最新版本！",
   "update_skipped_version": "已略過：v{version}",
   "update_clear_skip": "清除略過",
-  "update_error": "更新檢查失敗"
+  "update_error": "更新檢查失敗",
+  "update_downloading": "下載中...",
+  "update_downloaded": "已下載 — 可安裝",
+  "update_install_restart": "安裝並重啟",
+  "update_verifying": "驗證中...",
+  "update_download_error": "下載失敗",
+  "update_install_now": "下載並安裝",
+  "update_cancel": "取消"
 }
