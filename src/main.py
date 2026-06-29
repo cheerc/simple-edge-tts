@@ -204,6 +204,12 @@ def main():
     # come first. pystray runs its own event loop in a background thread.
     tray.start()
 
+    # Ref: #146 — Guard against future refactors that swap tray/webview start order.
+    # On macOS, tray.start() creates NSStatusItem via pystray; if webview.start()
+    # (which blocks the main thread) is called first, the NSStatusItem is never
+    # created because pystray requires the main thread for its Cocoa integration.
+    assert tray._icon is not None, "tray.start() must precede webview.start()"
+
     # Ref: #63 — Inject audio player bridge JS into WebView on page load.
     # audio_player_bridge.js defines window.audioPlayerBridge (IIFE) which
     # AudioPlayer.play() calls via evaluate_js(). Without injection, the

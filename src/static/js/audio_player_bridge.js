@@ -56,8 +56,8 @@
       // pywebview API calls return Promises — must await
       return await window.pywebview.api.get_audio_url(filePath);
     }
-    // Fallback for development/testing: try file:// protocol
-    return "file:///" + filePath.replace(/\\/g, "/").replace(/^\//, "");
+    // pywebview API unavailable — file:// blocked from HTTP origin by WebKit
+    return "";
   }
 
   /**

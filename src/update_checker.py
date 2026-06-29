@@ -8,6 +8,7 @@ Ref: T24 — Auto-update detect + notify
 
 import json
 import logging
+import ssl
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class UpdateChecker:
         """Fetch latest release info. Returns dict or None."""
         try:
             req = Request(GITHUB_API_URL, headers={"User-Agent": f"simple-edge-tts/{self.current_version}"})
-            with urlopen(req, timeout=5) as resp:
+            with urlopen(req, timeout=5, context=ssl.create_default_context()) as resp:
                 data = json.loads(resp.read())
             tag = data.get("tag_name", "")
             latest = tag.lstrip("v")
