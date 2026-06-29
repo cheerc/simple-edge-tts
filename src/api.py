@@ -426,11 +426,9 @@ class Api:
             or JSON null if up-to-date / offline / error.
         """
         try:
-            from importlib.metadata import version as pkg_version
-
             from src.update_checker import UpdateChecker
 
-            current = pkg_version("simple-edge-tts")
+            current = self._get_app_version()
             skip = self._config.get("skip_version")
             checker = UpdateChecker(current, skip_version=skip)
             result = checker.check()
@@ -438,6 +436,35 @@ class Api:
         except Exception as e:
             logger.debug("check_update failed: %s", e)
             return json.dumps({"error": str(e)})
+
+    @staticmethod
+    def _get_app_version() -> str:
+        """Return app version, working in both dev (uv run) and frozen (.app) modes.
+
+        Ref: #174 — importlib.metadata.version() fails in PyInstaller frozen
+        builds because .egg-info is not bundled. This method adds a fallback
+        chain to read the version from pyproject.toml directly.
+        """
+        # 1. Try importlib.metadata (works in dev mode)
+        try:
+            from importlib.metadata import version as pkg_version
+            ver = pkg_version("simple-edge-tts")
+            logger.info("Version from package metadata: %s", ver)
+            return ver
+        except Exception:
+            logger.debug("Package metadata not found, falling back to pyproject.toml")
+
+        # 2. Fallback: read pyproject.toml directly (works in frozen build)
+        try:
+            import re
+            toml = (Path(__file__).parent.parent / "pyproject.toml").read_text()
+            ver = re.search(r'version\s*=\s*"([^"]+)"', toml).group(1)
+            logger.info("Version from pyproject.toml: %s", ver)
+            return ver
+        except Exception:
+            logger.warning("Could not determine app version")
+
+        return "0.0.0"
 
     @log_api_call
     def set_window(self, window: object) -> None:
