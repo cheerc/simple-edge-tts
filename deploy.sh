@@ -61,6 +61,70 @@ do_clean() {
     pass "Clean complete"
 }
 
+# Ref: #175 — Build .app, launch, check runtime log for errors.
+do_verify() {
+    detect_platform
+
+    if [ "$PLATFORM" != "macOS" ]; then
+        echo "⚠ verify currently only supports macOS"
+        exit 0
+    fi
+
+    # 1. Build
+    info "Building .app for verification..."
+    do_build
+
+    # 2. Find previous log count to identify new log file
+    local log_dir="$HOME/Library/Logs/simple-edge-tts"
+    local prev_count
+    prev_count=$(ls -1 "$log_dir"/*.log 2>/dev/null | wc -l || echo 0)
+
+    # 3. Launch app (background, wait for startup)
+    info "Launching .app..."
+    open "dist/${APP_NAME}.app"
+
+    # 4. Wait for app startup + initial API calls (8 seconds)
+    echo "Waiting for app startup (8s)..."
+    sleep 8
+
+    # 5. Read log — prefer new file, fallback to latest
+    local log_file
+    local new_count
+    new_count=$(ls -1 "$log_dir"/*.log 2>/dev/null | wc -l || echo 0)
+    if [ "$new_count" -gt "$prev_count" ]; then
+        log_file=$(ls -t "$log_dir"/*.log | head -1)
+    else
+        log_file=$(ls -t "$log_dir"/*.log 2>/dev/null | head -1)
+    fi
+
+    if [ -z "$log_file" ] || [ ! -f "$log_file" ]; then
+        echo "⚠ No log file found at $log_dir"
+        pkill -f "${APP_NAME}" 2>/dev/null || true
+        exit 1
+    fi
+
+    info "Checking log: $(basename "$log_file")"
+
+    # 6. Grep for errors
+    local errors
+    errors=$(grep -iE 'ERROR|exception|Traceback' "$log_file" || true)
+
+    # 7. Kill app
+    pkill -f "${APP_NAME}" 2>/dev/null || true
+
+    # 8. Report
+    if [ -n "$errors" ]; then
+        echo ""
+        echo "========== BUILD VERIFICATION FAILED =========="
+        echo "Errors found in runtime log:"
+        echo "$errors"
+        echo "================================================"
+        exit 1
+    fi
+
+    pass "Build verification — log clean, no errors detected"
+}
+
 # Ref: #90 — Extract version from pyproject.toml (single source of truth).
 get_version() {
     python3 -c "import re; print(re.search(r'version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read()).group(1))"
@@ -267,11 +331,14 @@ case "$CMD" in
     clean)
         do_clean
         ;;
+    verify)
+        do_verify
+        ;;
     build-exe)
         do_build_exe
         ;;
     *)
-        echo "Usage: $0 [build|clean|build-exe]"
+        echo "Usage: $0 [build|clean|verify|build-exe]"
         exit 1
         ;;
 esac
