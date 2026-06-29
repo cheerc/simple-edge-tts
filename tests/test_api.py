@@ -524,18 +524,18 @@ class TestOutputDirValidation:
 class TestCheckUpdate:
     """Test check_update() — GitHub release update check (Issue #113)."""
 
-    def test_returns_json_null_on_error(self, api):
-        """check_update() returns error object when update check fails."""
-        with patch("importlib.metadata.version", side_effect=Exception("pkg error")):
+    def test_returns_error_on_version_failure(self, api):
+        """check_update() returns error object when version resolution fails."""
+        with patch.object(Api, "_get_app_version", side_effect=Exception("version error")):
             result = api.check_update()
         parsed = json.loads(result)
-        assert parsed == {"error": "pkg error"}
+        assert parsed == {"error": "version error"}
 
     def test_returns_result_from_checker(self, api, mock_config):
         """check_update() returns the UpdateChecker result as JSON."""
         mock_config.get.return_value = None  # skip_version
         mock_result = {"latest": "1.0.0", "url": "https://example.com"}
-        with patch("importlib.metadata.version", return_value="0.1.0"):
+        with patch.object(Api, "_get_app_version", return_value="0.1.0"):
             with patch("src.update_checker.UpdateChecker") as mock_checker_cls:
                 mock_checker = MagicMock()
                 mock_checker.check.return_value = mock_result
@@ -548,7 +548,7 @@ class TestCheckUpdate:
         """check_update() passes skip_version from config to UpdateChecker."""
         mock_config.get.return_value = "0.9.0"  # skip_version
         mock_result = {"latest": "1.0.0", "url": "https://example.com"}
-        with patch("importlib.metadata.version", return_value="0.1.0"):
+        with patch.object(Api, "_get_app_version", return_value="0.1.0"):
             with patch("src.update_checker.UpdateChecker") as mock_checker_cls:
                 mock_checker = MagicMock()
                 mock_checker.check.return_value = mock_result
@@ -558,12 +558,18 @@ class TestCheckUpdate:
                 call_args = mock_checker_cls.call_args
                 assert call_args.kwargs.get("skip_version") == "0.9.0"
 
-    def test_handles_import_error(self, api):
-        """check_update() returns error object on ImportError."""
+    def test_get_app_version_fallback_to_pyproject_toml(self, api):
+        """_get_app_version() falls back to pyproject.toml when package metadata missing."""
         with patch("importlib.metadata.version", side_effect=ImportError("no module")):
-            result = api.check_update()
-        parsed = json.loads(result)
-        assert parsed == {"error": "no module"}
+            ver = api._get_app_version()
+        assert ver == "0.1.0"  # from pyproject.toml in repo
+
+    def test_get_app_version_ultimate_fallback(self, api):
+        """_get_app_version() returns '0.0.0' when both sources fail."""
+        with patch("importlib.metadata.version", side_effect=ImportError("no module")):
+            with patch.object(Path, "read_text", side_effect=OSError("no file")):
+                ver = api._get_app_version()
+        assert ver == "0.0.0"
 
 
 class TestNotifyPlaybackFinished:

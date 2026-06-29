@@ -105,6 +105,7 @@ do_build() {
         --add-data "${RESOURCES_DIR}${sep}${RESOURCES_DIR}"
         --add-data "src/static${sep}src/static"
         --add-data "frontend/dist${sep}frontend/dist"
+        --add-data "pyproject.toml${sep}."
         --hidden-import pystray
         --hidden-import PIL
         --hidden-import edge_tts
