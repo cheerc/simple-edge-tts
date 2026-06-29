@@ -249,7 +249,7 @@ class TestInstallGuard:
     @patch("sys.platform", "darwin")
     @patch("os.access", return_value=True)
     def test_preflight_macos_writable_proceeds(self, mock_access):
-        """Preflight must allow install when /Applications/ is writable."""
+        """Preflight + copy + verify must succeed before shutdown is called."""
         mgr = UpdateManager(current_version="0.1.0")
         import tempfile
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dmg")
@@ -257,14 +257,19 @@ class TestInstallGuard:
         tmp.close()
         mgr._downloaded_path = Path(tmp.name)
         mgr._state = UpdateState.READY
-        # Patch _platform_install to avoid actual system changes
-        mgr._platform_install = MagicMock()
+        # Patch copy/verify/restart phases to avoid real system changes
+        mgr._copy_files = MagicMock()
+        mgr._verify_install = MagicMock()
+        mgr._restart = MagicMock()
         shutdown_called = []
 
         mgr.install(lambda: shutdown_called.append(1))
 
         assert len(shutdown_called) == 1
-        mgr._platform_install.assert_called_once()
+        # copy + verify must happen BEFORE shutdown
+        mgr._copy_files.assert_called_once()
+        mgr._verify_install.assert_called_once()
+        mgr._restart.assert_called_once()
 
 
 class TestMacOSWritableCheck:

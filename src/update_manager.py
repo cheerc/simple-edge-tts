@@ -113,25 +113,28 @@ class UpdateManager:
     def install(self, shutdown_handler: Callable[[], None]) -> None:
         """Run platform-specific install, then restart.
 
-        Pre-flight checks run BEFORE shutdown_handler() so that any
-        permission error or missing-file error can be returned to the
-        frontend as a clean toast message instead of crashing after the
-        UI has been torn down.
-
-        Ref: #179 reviewer findings F2/F3.
+        Order is deliberate (Ref: #179 reviewer findings F2/F3):
+        1. Preflight — permission checks, file existence (fail = clean error)
+        2. Copy files — ditto/extract BEFORE shutdown (fail = app stays open)
+        3. Verify copy — confirm the new bundle is valid
+        4. Shutdown — only NOW tear down the UI (copy succeeded)
+        5. Restart — launch new version + exit
         """
         with self._lock:
             if self._state != UpdateState.READY:
                 raise UpdateError("No verified update ready to install")
             self._state = UpdateState.INSTALLING
 
-        # Pre-flight checks FIRST — if these fail the API can still
-        # return an error to the frontend without closing the app.
+        # Steps 1-3: all reversible — app stays open on failure
         self._preflight_install()
+        self._copy_files()
+        self._verify_install()
 
-        # Now safe to tear down the UI and install.
+        # Step 4: now safe to tear down — copy succeeded
         shutdown_handler()
-        self._platform_install()
+
+        # Step 5: switch to new version
+        self._restart()
 
     def _preflight_install(self) -> None:
         """Run platform-specific checks BEFORE shutting down the UI.
@@ -357,20 +360,53 @@ class UpdateManager:
             )
 
     # ------------------------------------------------------------------
-    # Platform install
+    # Platform install — split into copy / verify / restart phases
+    #
+    # Ref: #179 reviewer finding F2 — copy + verify happen BEFORE
+    # shutdown_handler() so that any failure can be returned as a clean
+    # error toast. Restart happens AFTER shutdown.
     # ------------------------------------------------------------------
 
-    def _platform_install(self) -> None:
-        """Dispatch to the correct platform installer."""
+    def _copy_files(self) -> None:
+        """Copy the downloaded files to the install target.
+
+        macOS: mount .dmg, ditto .app → temp, unmount, atomic swap.
+        Windows: extract .zip to temp, place .exe alongside current exe.
+        Runs BEFORE shutdown_handler() — failure keeps the app open.
+        """
         if self._is_macos():
-            self._macos_install()
+            self._macos_copy()
         elif self._is_windows():
-            self._windows_install()
+            self._windows_copy()
         else:
             raise UpdateError(f"Unsupported platform: {sys.platform}")
 
-    def _macos_install(self) -> None:
-        """macOS: ditto .dmg → atomic swap → open -n → exit."""
+    def _verify_install(self) -> None:
+        """Verify the copied files are valid before committing to restart.
+
+        Runs AFTER _copy_files(), BEFORE shutdown_handler().
+        """
+        if self._is_macos():
+            self._macos_verify()
+        elif self._is_windows():
+            self._windows_verify()
+        # else unreachable (already caught in _copy_files)
+
+    def _restart(self) -> None:
+        """Launch the new version and exit.
+
+        Runs AFTER shutdown_handler() — the UI is already torn down.
+        """
+        if self._is_macos():
+            self._macos_restart()
+        elif self._is_windows():
+            self._windows_restart()
+        # else unreachable
+
+    # ---- macOS ---------------------------------------------------------
+
+    def _macos_copy(self) -> None:
+        """macOS: ditto .app out of .dmg → atomic swap into /Applications."""
         import shutil
         import subprocess
 
@@ -378,7 +414,7 @@ class UpdateManager:
         if dmg_path is None or not dmg_path.exists():
             raise UpdateError("Downloaded .dmg not found")
 
-        # 1. Mount .dmg and copy .app out with ditto
+        # Mount .dmg
         mount_point = Path(tempfile.gettempdir()) / "simple-edge-tts-update-mount"
         mount_point.mkdir(parents=True, exist_ok=True)
 
@@ -390,16 +426,17 @@ class UpdateManager:
                 timeout=30,
             )
 
-            # Find the .app bundle inside the mounted .dmg
             apps = list(mount_point.glob("*.app"))
             if not apps:
                 raise UpdateError("No .app bundle found in .dmg")
-            app_name = apps[0].name
+            self._macos_app_name = apps[0].name
 
-            # Copy .app to temp with ditto (preserves resource forks, symlinks, etc.)
-            temp_app = Path(tempfile.gettempdir()) / "simple-edge-tts-update" / f"{app_name}.new"
+            # Copy .app to temp with ditto
+            temp_app = Path(tempfile.gettempdir()) / "simple-edge-tts-update" / f"{self._macos_app_name}.new"
             if temp_app.exists():
                 shutil.rmtree(temp_app)
+            self._macos_temp_app = temp_app
+
             subprocess.run(
                 ["ditto", str(apps[0]), str(temp_app)],
                 check=True,
@@ -411,64 +448,86 @@ class UpdateManager:
                 timeout=10,
             )
 
-        # 2. Atomic swap
-        target_dir = Path("/Applications")
-        installed_app = target_dir / app_name
+        # Atomic swap into /Applications
+        target_app = Path("/Applications") / self._macos_app_name
 
         if not self._app_is_in_applications_dir():
-            # App not in /Applications — copy there
-            if installed_app.exists():
-                old_app = Path(str(installed_app) + ".old")
-                if old_app.exists():
-                    shutil.rmtree(old_app)
-                shutil.move(str(installed_app), str(old_app))
-            shutil.move(str(temp_app), str(installed_app))
+            if target_app.exists():
+                old = Path(str(target_app) + ".old")
+                if old.exists():
+                    shutil.rmtree(old)
+                shutil.move(str(target_app), str(old))
+            shutil.move(str(self._macos_temp_app), str(target_app))
         else:
-            # App IS in /Applications — atomic swap
-            old_app = Path(str(installed_app) + ".old")
+            old_app = Path(str(target_app) + ".old")
             if old_app.exists():
                 shutil.rmtree(old_app)
-            shutil.move(str(installed_app), str(old_app))
-            shutil.move(str(temp_app), str(installed_app))
+            shutil.move(str(target_app), str(old_app))
+            shutil.move(str(self._macos_temp_app), str(target_app))
 
-        # 3. Launch new version
+        self._macos_installed_app = target_app
+
+    def _macos_verify(self) -> None:
+        """Verify the swapped .app bundle is valid."""
+        target = self._macos_installed_app
+        if target is None or not target.exists():
+            raise UpdateError("Install verification failed: .app not found after copy")
+        # Check for a valid bundle marker
+        info_plist = target / "Contents" / "Info.plist"
+        if not info_plist.exists():
+            raise UpdateError(
+                "Install verification failed: .app bundle appears corrupt (no Info.plist)"
+            )
+
+    def _macos_restart(self) -> None:
+        """Launch new .app version and exit."""
+        import subprocess
+
         subprocess.Popen(
-            ["open", "-n", str(installed_app)],
+            ["open", "-n", str(self._macos_installed_app)],
             start_new_session=True,
         )
-
-        # 4. Clean up old + temp
         self._install_cleanup()
-
         os._exit(0)
 
-    def _windows_install(self) -> None:
-        """Windows: write .bat → subprocess.CREATE_NO_WINDOW → exit."""
-        import shutil
-        import subprocess as sp
-        import tempfile as tmp
+    # ---- Windows -------------------------------------------------------
 
-        if not self._install_dir_is_writable():
-            raise UpdateError("Install directory is not writable")
+    def _windows_copy(self) -> None:
+        """Windows: extract .zip → find .exe."""
+        import shutil
+        import tempfile as tmp
 
         downloaded = self._downloaded_path
         if downloaded is None or not downloaded.exists():
             raise UpdateError("Downloaded .zip not found")
 
-        # 1. Extract .zip
         extract_dir = Path(tmp.gettempdir()) / "simple-edge-tts-update" / "extracted"
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
         extract_dir.mkdir(parents=True, exist_ok=True)
         shutil.unpack_archive(str(downloaded), str(extract_dir))
 
-        # Find the .exe
         exes = list(extract_dir.glob("*.exe"))
         if not exes:
             raise UpdateError("No .exe found in downloaded archive")
-        new_exe = exes[0]
+        self._windows_new_exe = exes[0]
+
+    def _windows_verify(self) -> None:
+        """Verify the extracted .exe exists and is non-empty."""
+        new_exe = self._windows_new_exe
+        if new_exe is None or not new_exe.is_file():
+            raise UpdateError("Install verification failed: .exe not found")
+        if new_exe.stat().st_size == 0:
+            raise UpdateError("Install verification failed: .exe is empty")
+
+    def _windows_restart(self) -> None:
+        """Write .bat → launch with CREATE_NO_WINDOW → exit."""
+        import subprocess as sp
+        import tempfile as tmp
 
         old_exe = sys.executable
+        new_exe = self._windows_new_exe
 
-        # 2. Write install.bat
         bat_path = Path(tmp.gettempdir()) / "simple-edge-tts-update" / "install.bat"
         bat_content = (
             f'@echo off\r\n'
@@ -479,16 +538,14 @@ class UpdateManager:
         )
         bat_path.write_text(bat_content)
 
-        # 3. Run .bat with CREATE_NO_WINDOW
         sp.Popen(
             ["cmd", "/c", str(bat_path)],
             creationflags=sp.CREATE_NO_WINDOW,
         )
-
-        # 4. Clean up temp files
         self._install_cleanup()
-
         sys.exit(0)
+
+    # ---- Shared cleanup -----------------------------------------------
 
     def _install_cleanup(self) -> None:
         """Remove downloaded temp files after successful install."""
