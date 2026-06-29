@@ -53,11 +53,11 @@ function App() {
             "info",
             [
               {
-                label: t("update_download"),
+                label: { key: "update_download" },
                 onClick: () => window.open(update.url, "_blank"),
               },
               {
-                label: t("update_skip"),
+                label: { key: "update_skip" },
                 onClick: async () => {
                   await api.setConfig("skip_version", update.latest);
                 },
@@ -260,7 +260,7 @@ function App() {
       />
 
       {/* Toast system */}
-      <Toast toasts={toasts} onRemove={removeToast} />
+      <Toast toasts={toasts} onRemove={removeToast} t={t} />
     </div>
   );
 }

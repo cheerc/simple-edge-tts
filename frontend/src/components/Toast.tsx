@@ -12,6 +12,8 @@ import type { ToastItem } from "../types";
 interface ToastProps {
   toasts: ToastItem[];
   onRemove: (id: string) => void;
+  /** i18n translate function for reactive action label resolution. */
+  t: (key: string) => string;
 }
 
 const variantBorderColor: Record<string, string> = {
@@ -20,7 +22,7 @@ const variantBorderColor: Record<string, string> = {
   info: "transparent",
 };
 
-export function Toast({ toasts, onRemove }: ToastProps) {
+export function Toast({ toasts, onRemove, t }: ToastProps) {
   if (toasts.length === 0) return null;
 
   return (
@@ -77,7 +79,7 @@ export function Toast({ toasts, onRemove }: ToastProps) {
                     cursor: "pointer",
                   }}
                 >
-                  {action.label}
+                  {typeof action.label === "string" ? action.label : t(action.label.key)}
                 </button>
               ))}
             </div>

@@ -59,7 +59,8 @@ export type ToastVariant = "success" | "error" | "info";
 
 /** Action button in a toast notification. */
 export interface ToastAction {
-  label: string;
+  /** Plain string for static label, or { key } for i18n-reactive translation via t(). */
+  label: string | { key: string };
   onClick: () => void;
 }
 
