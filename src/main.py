@@ -87,16 +87,34 @@ def _get_frontend_url() -> str:
     return str(FRONTEND_DIST)
 
 
+def _run_cleanup(audio_player, api, tray=None):
+    """Run the shared shutdown cleanup sequence — idempotent.
+
+    Called from three shutdown paths (Ref: #112, #47):
+    1. Tray Quit → Cmd+Q / tray menu → execute_quit_shutdown()
+    2. Window X-button → closing event → execute_window_closing_shutdown()
+    3. Normal exit → webview.start() returns → main() exit block
+
+    All cleanup operations are idempotent so overlapping triggers
+    (e.g. Cmd+Q firing both _on_quit and window.destroy→closing) are safe.
+
+    Ref: #139 — Consolidates repeated begin_shutdown+cleanup+tray.stop+shutdown
+    that was duplicated across execute_quit_shutdown and the normal-exit block.
+    """
+    audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
+    api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
+    if tray is not None:
+        tray.stop()
+    shutdown_event_loop()
+
+
 def execute_quit_shutdown(audio_player, api, tray, window):
     """Execute the tray Quit shutdown sequence.
 
     Extracted from main() for testability (#112).  All cleanup calls are
     idempotent — safe to call even if the window-closing path has already run.
     """
-    audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
-    api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles
-    tray.stop()
-    shutdown_event_loop()
+    _run_cleanup(audio_player, api, tray)
     window.destroy()
 
 
@@ -275,10 +293,7 @@ def main():
     # executes, even if a cleanup step raises unexpectedly.
     logger.info("webview.start() finished. Starting normal exit cleanup...")
     try:
-        audio_player.begin_shutdown()  # Ref: #77 — prevent _eval_js deadlock
-        api.cleanup_preview_files()  # Ref: #123 — clean up preview tempfiles before os._exit(0)
-        tray.stop()
-        shutdown_event_loop()
+        _run_cleanup(audio_player, api, tray)
     except Exception:
         logger.exception("Exception during normal exit cleanup — forcing exit anyway")
     logger.info("Normal exit cleanup complete. Exiting process.")
