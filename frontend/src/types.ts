@@ -57,11 +57,19 @@ export interface OutputDirResult {
 /** Toast notification variant. */
 export type ToastVariant = "success" | "error" | "info";
 
+/** Action button in a toast notification. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 /** Toast notification item. */
 export interface ToastItem {
   id: string;
   message: string;
   variant: ToastVariant;
+  actions?: ToastAction[];
+  durationMs?: number;
 }
 
 /**

@@ -525,11 +525,11 @@ class TestCheckUpdate:
     """Test check_update() — GitHub release update check (Issue #113)."""
 
     def test_returns_json_null_on_error(self, api):
-        """check_update() returns JSON null when update check fails."""
+        """check_update() returns error object when update check fails."""
         with patch("importlib.metadata.version", side_effect=Exception("pkg error")):
             result = api.check_update()
         parsed = json.loads(result)
-        assert parsed is None
+        assert parsed == {"error": "pkg error"}
 
     def test_returns_result_from_checker(self, api, mock_config):
         """check_update() returns the UpdateChecker result as JSON."""
@@ -559,11 +559,11 @@ class TestCheckUpdate:
                 assert call_args.kwargs.get("skip_version") == "0.9.0"
 
     def test_handles_import_error(self, api):
-        """check_update() catches ImportError gracefully."""
+        """check_update() returns error object on ImportError."""
         with patch("importlib.metadata.version", side_effect=ImportError("no module")):
             result = api.check_update()
         parsed = json.loads(result)
-        assert parsed is None
+        assert parsed == {"error": "no module"}
 
 
 class TestNotifyPlaybackFinished:

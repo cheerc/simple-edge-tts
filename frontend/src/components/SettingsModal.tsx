@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { X } from "lucide-react";
+import { X, RefreshCw } from "lucide-react";
 import type { UseApiReturn } from "../hooks/useApi";
 
 interface SettingsModalProps {
@@ -30,6 +30,11 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
   const [closing, setClosing] = useState(false);
   const [enableLogging, setEnableLogging] = useState(false);
   const [showRestartDialog, setShowRestartDialog] = useState(false);
+  // Ref: #170 — Auto-update UI state
+  const [autoCheck, setAutoCheck] = useState(true);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<{ latest?: string; upToDate?: boolean; error?: boolean } | null>(null);
+  const [skippedVersion, setSkippedVersion] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -39,6 +44,22 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
       api.getConfig("enable_file_logging").then((res) => {
         if (res && res.value !== undefined) {
           setEnableLogging(!!res.value);
+        }
+      });
+    }
+  }, [open, api, api.ready]);
+
+  // Load auto-update config when modal opens
+  useEffect(() => {
+    if (open && api.ready) {
+      api.getConfig("auto_check_update").then((res) => {
+        if (res && res.value !== undefined && res.value !== null) {
+          setAutoCheck(!!res.value);
+        }
+      });
+      api.getConfig("skip_version").then((res) => {
+        if (res && res.value) {
+          setSkippedVersion(String(res.value));
         }
       });
     }
@@ -96,6 +117,49 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
     },
     [handleClose]
   );
+
+  const handleAutoCheckToggle = useCallback(
+    async (checked: boolean) => {
+      setAutoCheck(checked);
+      if (api.ready) {
+        try {
+          await api.setConfig("auto_check_update", checked);
+        } catch (e) {
+          console.error("Failed to save auto_check_update config", e);
+        }
+      }
+    },
+    [api]
+  );
+
+  const handleCheckUpdate = useCallback(async () => {
+    if (!api.ready) return;
+    setChecking(true);
+    setCheckResult(null);
+    try {
+      const update = await api.checkUpdate();
+      if (update) {
+        setCheckResult({ latest: update.latest });
+      } else {
+        setCheckResult({ upToDate: true });
+      }
+    } catch {
+      setCheckResult({ error: true });
+    } finally {
+      setChecking(false);
+    }
+  }, [api]);
+
+  const handleClearSkip = useCallback(async () => {
+    if (api.ready) {
+      try {
+        await api.setConfig("skip_version", null);
+        setSkippedVersion(null);
+      } catch (e) {
+        console.error("Failed to clear skip_version", e);
+      }
+    }
+  }, [api]);
 
   const handleLanguageChange = useCallback(
     async (newLanguage: string) => {
@@ -308,6 +372,195 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
               />
             </button>
           </div>
+        </div>
+
+        {/* Ref: #170 — Updates section */}
+        <div style={{ marginBottom: "var(--space-6)" }}>
+          <h3
+            style={{
+              fontSize: 16,
+              fontWeight: 600,
+              lineHeight: 1.4,
+              letterSpacing: "-0.1px",
+              color: "var(--color-text-primary)",
+              margin: "0 0 var(--space-3) 0",
+            }}
+          >
+            {t("update_section_title")}
+          </h3>
+
+          {/* Auto-check toggle */}
+          <div className="flex items-center justify-between" style={{ minHeight: 44 }}>
+            <div>
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: "var(--color-text-primary)",
+                }}
+              >
+                {t("update_auto_check")}
+              </span>
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "var(--color-text-secondary)",
+                  margin: "var(--space-1) 0 0 0",
+                  maxWidth: "340px",
+                  lineHeight: 1.4,
+                }}
+              >
+                {t("update_auto_check_desc")}
+              </p>
+            </div>
+
+            <button
+              role="switch"
+              aria-checked={autoCheck}
+              onClick={() => handleAutoCheckToggle(!autoCheck)}
+              style={{
+                position: "relative",
+                width: 44,
+                height: 24,
+                backgroundColor: autoCheck ? "var(--primary)" : "var(--border)",
+                borderRadius: "var(--radius-full)",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                transition: "background-color var(--duration-fast) var(--ease-default)",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.boxShadow = "var(--shadow-focus)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 18,
+                  height: 18,
+                  backgroundColor: "#ffffff",
+                  borderRadius: "50%",
+                  boxShadow: "var(--shadow-sm)",
+                  transform: autoCheck ? "translateX(22px)" : "translateX(4px)",
+                  transition: "transform var(--duration-fast) var(--ease-spring)",
+                }}
+              />
+            </button>
+          </div>
+
+          {/* Manual check button */}
+          <div style={{ marginTop: "var(--space-3)" }}>
+            <button
+              onClick={handleCheckUpdate}
+              disabled={checking}
+              className="flex items-center justify-center gap-2 rounded-md"
+              style={{
+                width: "100%",
+                height: 36,
+                background: checking ? "var(--border)" : "var(--color-surface-hover)",
+                color: "var(--color-text-primary)",
+                border: "1px solid var(--border)",
+                fontWeight: 500,
+                fontSize: 13,
+                cursor: checking ? "not-allowed" : "pointer",
+                transition: "background-color var(--duration-fast) var(--ease-default)",
+                opacity: checking ? 0.7 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (!checking) e.currentTarget.style.background = "var(--border)";
+              }}
+              onMouseLeave={(e) => {
+                if (!checking) e.currentTarget.style.background = "var(--color-surface-hover)";
+              }}
+            >
+              <RefreshCw
+                size={14}
+                style={{
+                  animation: checking ? "spin 1s linear infinite" : undefined,
+                }}
+              />
+              {checking ? t("update_checking") : t("update_check_now")}
+            </button>
+
+            {/* Inline check result */}
+            {checkResult && !checkResult.error && (
+              <p
+                style={{
+                  fontSize: 12,
+                  color: checkResult.upToDate ? "var(--color-success)" : "var(--primary)",
+                  margin: "var(--space-2) 0 0 0",
+                  lineHeight: 1.4,
+                }}
+              >
+                {checkResult.upToDate
+                  ? t("update_up_to_date")
+                  : t("update_available").replace("{version}", checkResult.latest ?? "")}
+              </p>
+            )}
+            {checkResult?.error && (
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "var(--destructive)",
+                  margin: "var(--space-2) 0 0 0",
+                  lineHeight: 1.4,
+                }}
+              >
+                {t("update_error")}
+              </p>
+            )}
+          </div>
+
+          {/* Skipped version row */}
+          {skippedVersion && (
+            <div
+              className="flex items-center justify-between"
+              style={{
+                marginTop: "var(--space-3)",
+                padding: "var(--space-2) var(--space-3)",
+                background: "var(--color-surface-hover)",
+                borderRadius: "var(--radius-md)",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                {t("update_skipped_version").replace("{version}", skippedVersion)}
+              </span>
+              <button
+                onClick={handleClearSkip}
+                className="flex items-center justify-center rounded-md"
+                style={{
+                  height: 28,
+                  padding: "0 var(--space-2)",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: "var(--color-text-secondary)",
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  cursor: "pointer",
+                  transition: "color var(--duration-fast) var(--ease-default)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--color-text-primary)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--color-text-secondary)";
+                }}
+                aria-label={t("update_clear_skip")}
+              >
+                <X size={12} style={{ marginRight: 4 }} />
+                {t("update_clear_skip")}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* About section */}

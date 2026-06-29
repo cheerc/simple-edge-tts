@@ -188,6 +188,9 @@ export function useApi(): UseApiReturn {
     const result = await getApi().check_update();
     const parsed = JSON.parse(result);
     if (parsed === null) return null;
+    if (parsed.error) {
+      throw new Error(parsed.error);
+    }
     return validate<UpdateInfo>(result, UpdateInfoSchema, "checkUpdate");
   }, [getApi]);
 

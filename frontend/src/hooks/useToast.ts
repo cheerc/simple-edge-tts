@@ -6,13 +6,13 @@
  */
 
 import { useState, useCallback, useRef } from "react";
-import type { ToastItem, ToastVariant } from "../types";
+import type { ToastItem, ToastVariant, ToastAction } from "../types";
 
 let toastCounter = 0;
 
 export interface UseToastReturn {
   toasts: ToastItem[];
-  addToast: (message: string, variant?: ToastVariant) => void;
+  addToast: (message: string, variant?: ToastVariant, actions?: ToastAction[], durationMs?: number) => void;
   removeToast: (id: string) => void;
 }
 
@@ -30,15 +30,18 @@ export function useToast(): UseToastReturn {
   }, []);
 
   const addToast = useCallback(
-    (message: string, variant: ToastVariant = "info") => {
+    (message: string, variant: ToastVariant = "info", actions?: ToastAction[], durationMs?: number) => {
       const id = `toast-${++toastCounter}`;
-      const item: ToastItem = { id, message, variant };
+      const effectiveDuration = durationMs ?? (actions && actions.length > 0 ? 15000 : 4000);
+      const item: ToastItem = { id, message, variant, actions, durationMs: effectiveDuration };
       setToasts((prev) => [...prev, item]);
 
-      const timer = setTimeout(() => {
-        removeToast(id);
-      }, 4000);
-      timers.current.set(id, timer);
+      if (effectiveDuration > 0) {
+        const timer = setTimeout(() => {
+          removeToast(id);
+        }, effectiveDuration);
+        timers.current.set(id, timer);
+      }
     },
     [removeToast]
   );
