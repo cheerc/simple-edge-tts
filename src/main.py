@@ -207,9 +207,13 @@ def main():
     atexit.register(api.cleanup_preview_files)
 
     url = _get_frontend_url()
-    logger.info("Loading frontend URL: %s", url)
 
     theme = config.get("theme") or "dark"
+    # Ref: #165 — Pass theme via URL query parameter so it's available
+    # before React renders.  The loaded event fires too late (React already
+    # called useState(getInitialTheme) by then), causing a theme flash.
+    url = f"{url}?theme={theme}"
+    logger.info("Loading frontend URL: %s (theme=%s)", url, theme)
     bg_color = "#fafafa" if theme == "light" else "#1a1a2e"
 
     # Ref: #73 & #108 — Set background_color dynamically based on the last saved
