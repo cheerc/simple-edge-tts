@@ -514,9 +514,21 @@ class Api:
         Creates an UpdateManager, starts downloading in a daemon thread,
         and returns the initial state immediately. The frontend polls
         get_download_progress() for updates.
+
+        Ref: #179 reviewer finding F1 — API-level re-entrancy guard:
+        if an UpdateManager already exists and is in an active state
+        (DOWNLOADING / VERIFYING / READY), return the current state
+        instead of spawning a duplicate download thread.
         """
         try:
-            from src.update_manager import UpdateManager
+            from src.update_manager import UpdateManager, UpdateState
+
+            # Re-entrancy guard: don't spawn duplicate downloads
+            if self._update_manager is not None:
+                active_states = {UpdateState.DOWNLOADING, UpdateState.VERIFYING, UpdateState.READY}
+                if self._update_manager.state in active_states:
+                    info = self._update_manager.get_progress()
+                    return json.dumps({"state": info["state"]})
 
             current = self._get_app_version()
             self._update_manager = UpdateManager(current_version=current)

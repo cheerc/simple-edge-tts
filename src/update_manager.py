@@ -113,16 +113,49 @@ class UpdateManager:
     def install(self, shutdown_handler: Callable[[], None]) -> None:
         """Run platform-specific install, then restart.
 
-        Calls shutdown_handler() first to clean up preview files, stop
-        audio, and shut down the event loop before replacing the app.
+        Pre-flight checks run BEFORE shutdown_handler() so that any
+        permission error or missing-file error can be returned to the
+        frontend as a clean toast message instead of crashing after the
+        UI has been torn down.
+
+        Ref: #179 reviewer findings F2/F3.
         """
         with self._lock:
             if self._state != UpdateState.READY:
                 raise UpdateError("No verified update ready to install")
             self._state = UpdateState.INSTALLING
 
+        # Pre-flight checks FIRST — if these fail the API can still
+        # return an error to the frontend without closing the app.
+        self._preflight_install()
+
+        # Now safe to tear down the UI and install.
         shutdown_handler()
         self._platform_install()
+
+    def _preflight_install(self) -> None:
+        """Run platform-specific checks BEFORE shutting down the UI.
+
+        These checks must succeed before we tear down the frontend,
+        so any failure can be returned to the user as a clean error
+        toast instead of crashing a dying process.
+
+        Ref: #179 reviewer findings F2/F3.
+        """
+        if self._downloaded_path is None or not self._downloaded_path.exists():
+            raise UpdateError("Downloaded file not found — cannot install")
+
+        if self._is_macos():
+            if not self._macos_target_is_writable():
+                raise UpdateError(
+                    "Cannot write to /Applications — please move "
+                    "the app to /Applications or check permissions"
+                )
+        elif self._is_windows():
+            if not self._install_dir_is_writable():
+                raise UpdateError("Install directory is not writable")
+        else:
+            raise UpdateError(f"Unsupported platform: {sys.platform}")
 
     # ------------------------------------------------------------------
     # Platform detection helpers
@@ -145,6 +178,19 @@ class UpdateManager:
     def _install_dir_is_writable() -> bool:
         """Return True if the directory containing the executable is writable."""
         return os.access(os.path.dirname(sys.executable), os.W_OK)
+
+    @staticmethod
+    def _macos_target_is_writable() -> bool:
+        """Return True if the macOS install target directory is writable.
+
+        Checks /Applications/ if the app is already there, otherwise
+        checks the parent directory of the current .app bundle.
+        """
+        target = Path("/Applications")
+        if not UpdateManager._app_is_in_applications_dir():
+            # App running from elsewhere — check parent of current bundle
+            target = Path(sys.executable).resolve().parent.parent.parent
+        return os.access(target, os.W_OK)
 
     # ------------------------------------------------------------------
     # Internal: GitHub Releases asset discovery

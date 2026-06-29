@@ -214,6 +214,74 @@ class TestInstallGuard:
         with pytest.raises(UpdateError, match="No verified update"):
             mgr.install(lambda: None)
 
+    def test_preflight_fails_when_file_missing(self):
+        """Preflight must fail before shutdown_handler() is called."""
+        mgr = UpdateManager(current_version="0.1.0")
+        # Manually set state to READY without a downloaded file
+        mgr._state = UpdateState.READY
+        shutdown_called = []
+
+        with pytest.raises(UpdateError, match="Downloaded file not found"):
+            mgr.install(lambda: shutdown_called.append(1))
+
+        # Shutdown handler must NOT have been called
+        assert len(shutdown_called) == 0
+
+    @patch("sys.platform", "darwin")
+    @patch("os.access", return_value=False)
+    def test_preflight_macos_not_writable_raises(self, mock_access):
+        """Preflight must catch unwritable /Applications/ before shutdown."""
+        mgr = UpdateManager(current_version="0.1.0")
+        # Simulate a ready download
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dmg")
+        tmp.write(b"\x00" * 100)
+        tmp.close()
+        mgr._downloaded_path = Path(tmp.name)
+        mgr._state = UpdateState.READY
+        shutdown_called = []
+
+        with pytest.raises(UpdateError, match="Cannot write to /Applications"):
+            mgr.install(lambda: shutdown_called.append(1))
+
+        assert len(shutdown_called) == 0
+
+    @patch("sys.platform", "darwin")
+    @patch("os.access", return_value=True)
+    def test_preflight_macos_writable_proceeds(self, mock_access):
+        """Preflight must allow install when /Applications/ is writable."""
+        mgr = UpdateManager(current_version="0.1.0")
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dmg")
+        tmp.write(b"\x00" * 100)
+        tmp.close()
+        mgr._downloaded_path = Path(tmp.name)
+        mgr._state = UpdateState.READY
+        # Patch _platform_install to avoid actual system changes
+        mgr._platform_install = MagicMock()
+        shutdown_called = []
+
+        mgr.install(lambda: shutdown_called.append(1))
+
+        assert len(shutdown_called) == 1
+        mgr._platform_install.assert_called_once()
+
+
+class TestMacOSWritableCheck:
+    """Test macOS target directory writability detection."""
+
+    @patch("sys.platform", "darwin")
+    @patch("os.access", return_value=True)
+    def test_applications_writable(self, mock_access):
+        mgr = UpdateManager(current_version="0.1.0")
+        assert mgr._macos_target_is_writable() is True
+
+    @patch("sys.platform", "darwin")
+    @patch("os.access", return_value=False)
+    def test_applications_not_writable(self, mock_access):
+        mgr = UpdateManager(current_version="0.1.0")
+        assert mgr._macos_target_is_writable() is False
+
 
 class TestGetProgress:
     """Test get_progress() dict structure."""
