@@ -440,7 +440,7 @@ class UpdateManager:
             self._macos_temp_app = temp_app
 
             subprocess.run(
-                ["ditto", str(apps[0]), str(temp_app)],
+                ["ditto", "--noqtn", str(apps[0]), str(temp_app)],
                 check=True,
                 timeout=60,
             )
@@ -497,6 +497,16 @@ class UpdateManager:
     def _macos_restart(self) -> None:
         """Launch new .app version and exit."""
         import subprocess
+
+        # Ref: #198 — Remove quarantine from installed app before launch
+        # so Gatekeeper does not block the auto-updated bundle.
+        try:
+            subprocess.run(
+                ["xattr", "-dr", "com.apple.quarantine", str(self._macos_installed_app)],
+                timeout=5,
+            )
+        except Exception:
+            pass  # Best-effort; quarantine may not exist
 
         subprocess.Popen(
             ["open", "-n", str(self._macos_installed_app)],
