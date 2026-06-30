@@ -1,5 +1,5 @@
 {
-  "app_title": "simple-edge-tts",
+  "app_title": "Simple Edge TTS",
   "voice_selection": "Voice Selection",
   "search_voice": "Search voices...",
   "parameters": "Parameters",
@@ -42,7 +42,6 @@
   "speed": "Speed",
   "about": "About",
   "about_description": "Cross-platform text-to-speech desktop app powered by Edge TTS",
-  "status_playing": "Playing...",
   "status_saving": "Saving...",
   "theme_light": "Light Mode",
   "theme_dark": "Dark Mode",
