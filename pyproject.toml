@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simple-edge-tts"
-version = "0.1.0"
+version = "0.1.1"
 description = "Cross-platform Edge TTS desktop app with pywebview GUI"
 readme = "README.md"
 license = {text = "MIT"}
