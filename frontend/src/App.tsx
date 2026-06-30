@@ -1,13 +1,12 @@
 /**
  * Main application layout — single column.
  *
- * Top to bottom: Header → Voice Controls Card → Text Area → Action Bar.
- * Per mockup v2 — T25 UI Layout Rework.
+ * Top to bottom: Voice Controls Card → Text Area → Action Bar → Footer.
+ * Per mockup v2 — T25 UI Layout Rework; #193 — Header removed, title moved to footer.
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
 
-import { Header } from "./components/Header";
 import { VoiceSelector } from "./components/VoiceSelector";
 import { TextEditor } from "./components/TextEditor";
 import { ActionBar } from "./components/ActionBar";
@@ -286,9 +285,6 @@ function App() {
         background: "var(--background)",
       }}
     >
-      {/* Header — full width */}
-      <Header onSettingsClick={() => setSettingsOpen(true)} onThemeToggle={toggleTheme} isDark={isDark} t={t} />
-
       {/* Content area — single column */}
       <div
         style={{
@@ -330,7 +326,7 @@ function App() {
           <TextEditor text={text} onTextChange={setText} t={t} />
         </div>
 
-        {/* Action Bar — 2 buttons (Ref: #51) */}
+        {/* Action Bar — 2 buttons (Ref: #51) + output folder + theme/settings (Ref: #193) */}
         <ActionBar
           onTogglePreview={handleTogglePreview}
           onSave={handleSave}
@@ -340,8 +336,35 @@ function App() {
           t={t}
           outputDir={outputDir}
           onSelectOutputDir={handleSelectOutputDir}
+          onSettingsClick={() => setSettingsOpen(true)}
+          onThemeToggle={toggleTheme}
+          isDark={isDark}
         />
       </div>
+
+      {/* Footer — centered app title (Ref: #193) */}
+      <footer
+        style={{
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: 32,
+          padding: "0 28px 8px",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 400,
+            color: "var(--color-text-tertiary, var(--color-text-secondary))",
+            letterSpacing: "0.5px",
+            opacity: 0.5,
+          }}
+        >
+          Simple Edge TTS
+        </span>
+      </footer>
 
       {/* Settings modal */}
       <SettingsModal
