@@ -242,6 +242,15 @@ do_build() {
             rm -rf "$staging"
         fi
 
+        # Ref: #198 — Create macOS ZIP for direct download (browser quarantine
+        # propagation is more predictable with ZIP than DMG).
+        info "Creating macOS ZIP..."
+        if ditto -c -k --sequesterRsrc --keepParent "$app_path" "dist/${APP_NAME}-macos.zip" 2>/dev/null; then
+            pass ".zip created: dist/${APP_NAME}-macos.zip"
+        else
+            echo -e "${RED}⚠ Warning${RESET}: .zip creation failed (non-fatal)"
+        fi
+
         # Ref: #90 — Clean raw PyInstaller onedir output; only .app + .dmg needed.
         if [ -d "dist/${APP_NAME}" ]; then
             rm -rf "dist/${APP_NAME}"
@@ -255,6 +264,7 @@ do_build() {
     if [ "$PLATFORM" = "macOS" ]; then
         echo "  App: dist/${APP_NAME}.app"
         echo "  DMG: dist/${APP_NAME}.dmg"
+        echo "  ZIP: dist/${APP_NAME}-macos.zip"
     elif [ "$PLATFORM" = "Windows" ]; then
         echo "  Exe: dist/${APP_NAME}.exe"
     else

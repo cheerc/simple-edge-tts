@@ -570,7 +570,7 @@ class TestCheckUpdate:
         """_get_app_version() falls back to pyproject.toml when package metadata missing."""
         with patch("importlib.metadata.version", side_effect=ImportError("no module")):
             ver = api._get_app_version()
-        assert ver == "0.1.0"  # from pyproject.toml in repo
+        assert ver == "0.1.1"  # from pyproject.toml in repo
 
     def test_get_app_version_ultimate_fallback(self, api):
         """_get_app_version() returns '0.0.0' when both sources fail."""

@@ -20,21 +20,55 @@
 | Windows | `simple-edge-tts.zip` | 下載後解壓縮執行，免安裝 |
 | macOS | `simple-edge-tts.dmg` | 打開 DMG，拖到 Applications |
 
-## ⚠️ 首次執行安全性說明
+## ⚠️ 首次開啟說明
 
-### macOS
+simple-edge-tts 是開放原始碼的免費軟體。由於**沒有購買 Apple 付費開發者簽章**，作業系統會在首次開啟時顯示安全性提示。請依照以下步驟操作。
 
-首次開啟時，macOS 會顯示「無法打開，因為無法驗證開發者」。
+---
 
-**解決方式**（擇一）：
-1. 在 Finder 中找到 app → **右鍵** →「**開啟**」→ 確認
-2. 終端機執行：`xattr -cr /Applications/simple-edge-tts.app`
+### 🖥️ macOS
 
-### Windows
+**為什麼會看到提示？**
 
-首次執行時，SmartScreen 會顯示「Windows 已保護您的電腦」。
+macOS Gatekeeper 會檢查應用程式是否有 Apple 認證的開發者簽章。因為我們沒有購買 Apple Developer Program（年費 US$99），系統會顯示「無法驗證開發者」或「已損毀」。
 
-**解決方式**：點擊「**其他資訊**」→「**仍要執行**」
+> 💡 **這個提示不代表程式有問題**——它只表示 Apple 無法辨識開發者身分。程式碼完全[開放](https://github.com/cheerc/simple-edge-tts)，任何人都可以檢查。
+
+**方法一：右鍵開啟（最簡單）**
+
+1. 開啟 **Finder**，找到 `simple-edge-tts` app
+2. 對著 app 圖示按 **右鍵**（或按住 `Control` 鍵點擊）
+3. 在選單中選擇「**開啟**」
+4. 跳出對話框時，再按一次「**開啟**」
+
+> ✅ 只要做一次就好，之後可以直接雙擊開啟。
+
+**方法二：使用終端機（若方法一無效）**
+
+1. 打開 **終端機 (Terminal)**：在「啟動台 (Launchpad)」→「其他」檔案夾 →「Terminal」
+2. 複製以下指令、貼上、按 `Enter`：
+   ```
+   xattr -cr /Applications/simple-edge-tts.app
+   ```
+3. 關閉終端機，再次雙擊開啟 app
+
+> ⚠️ 如果你把 app 放在其他位置（不是 `/Applications`），請把路徑換成你存放的位置。
+
+---
+
+### 🪟 Windows
+
+**為什麼會看到提示？**
+
+Windows SmartScreen 會對不常見的下載檔案顯示警告。
+
+**操作步驟：**
+
+1. 看到「Windows 已保護您的電腦」時，點擊「**其他資訊**」
+2. 確認發行者顯示為「未知的發行者」
+3. 點擊「**仍要執行**」
+
+> ✅ 只要做一次就好，之後可以直接執行。
 
 ## 使用方式
 

@@ -151,6 +151,16 @@ jobs:
             dist/simple-edge-tts.dmg
           rm -rf "$staging"
 
+      # Ref: #198 — Produce macOS ZIP for direct download.
+      # ZIP quarantine propagation is more predictable than DMG.
+      - name: Create macOS ZIP
+        if: matrix.platform == 'macOS'
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/simple-edge-tts.app \
+            dist/simple-edge-tts-macos.zip
+          echo "macOS ZIP created"
+
       - name: Create .zip (Windows)
         if: matrix.platform == 'Windows'
         shell: pwsh
@@ -162,6 +172,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: |
             dist/simple-edge-tts.dmg
+            dist/simple-edge-tts-macos.zip
             dist/simple-edge-tts-windows.zip
           if-no-files-found: warn
 
@@ -198,4 +209,7 @@ jobs:
             artifacts/**/*.zip
             SHA256SUMS.txt
           generate_release_notes: true
+          append_body: true
+          body: |
+            ⚠️ **macOS 使用者**：首次開啟若遇到「已損毀」或「無法驗證開發者」提示，請參考 [README 的「首次開啟說明」](https://github.com/cheerc/simple-edge-tts#%E2%9A%A0%EF%B8%8F-%E9%A6%96%E6%AC%A1%E5%9F%B7%E8%A1%8C%E5%AE%89%E5%85%A8%E6%80%A7%E8%AA%AA%E6%98%8E)。
 
