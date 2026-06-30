@@ -143,7 +143,7 @@ export function ActionBar({
         onMouseLeave={(e) => {
           e.currentTarget.style.background = "transparent";
         }}
-        title={t("select_output_folder") || "Select output folder"}
+        title={t("select_output_folder")}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {

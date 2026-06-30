@@ -450,24 +450,37 @@ class UpdateManager:
                 timeout=10,
             )
 
-        # Atomic swap into /Applications
+        # Ref: #191 — In-place replacement for non-/Applications locations
         target_app = Path("/Applications") / self._macos_app_name
 
-        if not self._app_is_in_applications_dir():
-            if target_app.exists():
-                old = Path(str(target_app) + ".old")
-                if old.exists():
-                    shutil.rmtree(old)
-                shutil.move(str(target_app), str(old))
-            shutil.move(str(self._macos_temp_app), str(target_app))
-        else:
+        if self._app_is_in_applications_dir():
+            # Case 3: App in /Applications → atomic swap (unchanged)
             old_app = Path(str(target_app) + ".old")
             if old_app.exists():
                 shutil.rmtree(old_app)
             shutil.move(str(target_app), str(old_app))
             shutil.move(str(self._macos_temp_app), str(target_app))
-
-        self._macos_installed_app = target_app
+            self._macos_installed_app = target_app
+        else:
+            # App NOT in /Applications
+            original_app = Path(sys.executable).resolve().parents[2]
+            if os.access(original_app.parent, os.W_OK):
+                # Case 1: Original dir writable → in-place replace
+                old_app = Path(str(original_app) + ".old")
+                if old_app.exists():
+                    shutil.rmtree(old_app)
+                shutil.move(str(original_app), str(old_app))
+                shutil.move(str(self._macos_temp_app), str(original_app))
+                self._macos_installed_app = original_app
+            else:
+                # Case 2: Not writable → install to /Applications (fallback)
+                if target_app.exists():
+                    old = Path(str(target_app) + ".old")
+                    if old.exists():
+                        shutil.rmtree(old)
+                    shutil.move(str(target_app), str(old))
+                shutil.move(str(self._macos_temp_app), str(target_app))
+                self._macos_installed_app = target_app
 
     def _macos_verify(self) -> None:
         """Verify the swapped .app bundle is valid."""

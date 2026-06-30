@@ -7,6 +7,7 @@
   "pitch": "音調 (Pitch)",
   "output_settings": "輸出設定",
   "choose_folder": "選擇資料夾",
+  "select_output_folder": "選擇輸出資料夾",
   "text_placeholder": "輸入要轉換的文字...",
   "preview": "試聽",
   "stop": "停止",

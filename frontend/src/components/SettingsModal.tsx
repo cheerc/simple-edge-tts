@@ -140,6 +140,7 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
     setCheckResult(null);
     try {
       const update = await api.checkUpdate(true);  // Ref: #184 — manual check clears skip_version
+      setSkippedVersion(null);  // Ref: #190 — sync UI state after backend clears skip
       if (update) {
         setCheckResult({ latest: update.latest });
       } else {
