@@ -42,3 +42,4 @@ graphify-out/
 frontend/node_modules/
 
 .agents/
+uv.lock
