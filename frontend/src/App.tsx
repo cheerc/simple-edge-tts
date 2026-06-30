@@ -342,24 +342,24 @@ function App() {
         />
       </div>
 
-      {/* Footer — centered app title (Ref: #193) */}
+      {/* Footer — centered app title (Ref: #193, #195) */}
       <footer
         style={{
           flexShrink: 0,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          height: 32,
-          padding: "0 28px 8px",
+          padding: "12px 28px",
+          borderTop: "1px solid var(--border)",
         }}
       >
         <span
           style={{
-            fontSize: 11,
-            fontWeight: 400,
+            fontSize: 13,
+            fontWeight: 500,
             color: "var(--color-text-tertiary, var(--color-text-secondary))",
             letterSpacing: "0.5px",
-            opacity: 0.5,
+            opacity: 0.7,
           }}
         >
           Simple Edge TTS
