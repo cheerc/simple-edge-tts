@@ -346,3 +346,88 @@ class TestWindowsWritableCheck:
     def test_writable_check_fails(self, mock_access):
         mgr = UpdateManager(current_version="0.1.0")
         assert mgr._install_dir_is_writable() is False
+
+
+class TestMacOSCopyInPlace:
+    """Test #191 — _macos_copy in-place replacement for non-/Applications locations."""
+
+    # A realistic-looking .app bundle path for in-place testing
+    FAKE_APP = "/Users/test/Downloads/SimpleEdgeTTS.app"
+
+    def _setup_ready_mgr_with_dmg(self):
+        """Create an UpdateManager with a fake downloaded DMG ready for copy."""
+        mgr = UpdateManager(current_version="0.1.0")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dmg")
+        tmp.write(b"\x00" * 100)
+        tmp.close()
+        mgr._downloaded_path = Path(tmp.name)
+        mgr._macos_app_name = "SimpleEdgeTTS.app"
+        self._cleanup_tmp = tmp
+        return mgr
+
+    @patch("sys.platform", "darwin")
+    @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
+    @patch("src.update_manager.os.access", return_value=True)
+    @patch("shutil.rmtree")
+    @patch("shutil.move")
+    @patch("subprocess.run")
+    @patch("tempfile.gettempdir", return_value="/tmp")
+    def test_not_in_applications_writable_installs_in_place(
+        self, mock_tmpdir, mock_run, mock_move, mock_rmtree, mock_access, mock_in_apps
+    ):
+        """App not in /Applications + dir writable → in-place replace at original location."""
+        mgr = self._setup_ready_mgr_with_dmg()
+
+        with patch("pathlib.Path.mkdir"), \
+             patch("pathlib.Path.glob", return_value=[Path("/tmp/mnt/SimpleEdgeTTS.app")]), \
+             patch("sys.executable", self.FAKE_APP + "/Contents/MacOS/simple-edge-tts"):
+            mgr._macos_copy()
+
+        # Verify: installed to original location, NOT /Applications
+        assert mgr._macos_installed_app is not None
+        assert str(mgr._macos_installed_app) != str(Path("/Applications/SimpleEdgeTTS.app"))
+        assert mgr._macos_installed_app == Path(self.FAKE_APP)
+        # Verify old app was moved aside (dst has .old suffix for atomic swap)
+        move_dsts = [str(c[0][1]) for c in mock_move.call_args_list]
+        assert any(".old" in d for d in move_dsts), \
+            f"Expected .old backup in move destinations: {move_dsts}"
+
+    @patch("sys.platform", "darwin")
+    @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
+    @patch("src.update_manager.os.access", return_value=False)
+    @patch("shutil.rmtree")
+    @patch("shutil.move")
+    @patch("subprocess.run")
+    @patch("tempfile.gettempdir", return_value="/tmp")
+    def test_not_in_applications_not_writable_falls_back_to_applications(
+        self, mock_tmpdir, mock_run, mock_move, mock_rmtree, mock_access, mock_in_apps
+    ):
+        """App not in /Applications + dir NOT writable → install to /Applications."""
+        mgr = self._setup_ready_mgr_with_dmg()
+
+        with patch("pathlib.Path.mkdir"), \
+             patch("pathlib.Path.glob", return_value=[Path("/tmp/mnt/SimpleEdgeTTS.app")]), \
+             patch("sys.executable", self.FAKE_APP + "/Contents/MacOS/simple-edge-tts"):
+            mgr._macos_copy()
+
+        # Verify: installed to /Applications
+        assert mgr._macos_installed_app == Path("/Applications/SimpleEdgeTTS.app")
+
+    @patch("sys.platform", "darwin")
+    @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=True)
+    @patch("shutil.rmtree")
+    @patch("shutil.move")
+    @patch("subprocess.run")
+    @patch("tempfile.gettempdir", return_value="/tmp")
+    def test_in_applications_swap_unchanged(
+        self, mock_tmpdir, mock_run, mock_move, mock_rmtree, mock_in_apps
+    ):
+        """App IS in /Applications → atomic swap behavior unchanged."""
+        mgr = self._setup_ready_mgr_with_dmg()
+
+        with patch("pathlib.Path.mkdir"), \
+             patch("pathlib.Path.glob", return_value=[Path("/tmp/mnt/SimpleEdgeTTS.app")]):
+            mgr._macos_copy()
+
+        # Verify: installed to /Applications (existing behavior preserved)
+        assert mgr._macos_installed_app == Path("/Applications/SimpleEdgeTTS.app")
