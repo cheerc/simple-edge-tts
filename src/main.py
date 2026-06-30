@@ -224,7 +224,7 @@ def main():
     # Ref: #73 & #108 — Set background_color dynamically based on the last saved
     # theme to prevent theme flash on startup.
     window = webview.create_window(
-        title="Simple Edge TTS",
+        title="",
         url=url,
         js_api=api,
         width=1200,

@@ -7,7 +7,7 @@
  * Ref: #51 — Merge Preview + Stop into toggle button
  */
 
-import { Loader2, FolderOpen } from "lucide-react";
+import { Loader2, FolderOpen, Settings, Sun, Moon } from "lucide-react";
 
 interface ActionBarProps {
   onTogglePreview: () => void;
@@ -18,6 +18,9 @@ interface ActionBarProps {
   t: (key: string) => string;
   outputDir: string;
   onSelectOutputDir: () => void;
+  onSettingsClick?: () => void;
+  onThemeToggle?: () => void;
+  isDark?: boolean;
 }
 
 export function ActionBar({
@@ -29,6 +32,9 @@ export function ActionBar({
   t,
   outputDir,
   onSelectOutputDir,
+  onSettingsClick,
+  onThemeToggle,
+  isDark,
 }: ActionBarProps) {
   const baseBtnStyle: React.CSSProperties = {
     flex: 1,
@@ -123,48 +129,115 @@ export function ActionBar({
         </button>
       </div>
 
-      {/* Output folder selector row — Ref: #50 */}
+      {/* Output folder selector row — Ref: #50, Ref: #193 */}
       <div
-        onClick={onSelectOutputDir}
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 8,
-          padding: "8px 12px",
-          borderRadius: 8,
-          cursor: "pointer",
-          transition: "background 0.15s",
-          color: "var(--color-text-secondary)",
-          fontSize: 13,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "var(--color-surface-hover, rgba(0,0,0,0.04))";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "transparent";
-        }}
-        title={t("select_output_folder")}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onSelectOutputDir();
-          }
+          justifyContent: "space-between",
+          gap: 12,
         }}
       >
-        <FolderOpen size={16} style={{ flexShrink: 0, opacity: 0.7 }} />
-        <span
+        {/* Folder path — clickable */}
+        <div
+          onClick={onSelectOutputDir}
           style={{
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            direction: "rtl",
-            textAlign: "left",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "8px 12px",
+            borderRadius: 8,
+            cursor: "pointer",
+            transition: "background 0.15s",
+            color: "var(--color-text-secondary)",
+            fontSize: 13,
+            flex: 1,
+            minWidth: 0,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "var(--color-surface-hover, rgba(0,0,0,0.04))";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+          }}
+          title={t("select_output_folder")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onSelectOutputDir();
+            }
           }}
         >
-          {outputDir}
-        </span>
+          <FolderOpen size={16} style={{ flexShrink: 0, opacity: 0.7 }} />
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              direction: "rtl",
+              textAlign: "left",
+            }}
+          >
+            {outputDir}
+          </span>
+        </div>
+
+        {/* Theme toggle + Settings — right-aligned (Ref: #193) */}
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)", flexShrink: 0 }}>
+          <button
+            onClick={onThemeToggle}
+            className="flex items-center justify-center rounded-md"
+            style={{
+              width: 36,
+              height: 36,
+              color: "var(--color-text-secondary)",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              transition: `color var(--duration-fast) var(--ease-default),
+                           background var(--duration-fast) var(--ease-default)`,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--color-accent-main)";
+              e.currentTarget.style.background = "var(--color-surface-hover)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-secondary)";
+              e.currentTarget.style.background = "transparent";
+            }}
+            aria-label={t("theme_toggle")}
+          >
+            {isDark ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
+
+          <button
+            onClick={onSettingsClick}
+            className="flex items-center justify-center rounded-md"
+            style={{
+              width: 36,
+              height: 36,
+              color: "var(--color-text-secondary)",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              transition: `color var(--duration-fast) var(--ease-default),
+                           background var(--duration-fast) var(--ease-default)`,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--color-accent-main)";
+              e.currentTarget.style.background = "var(--color-surface-hover)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--color-text-secondary)";
+              e.currentTarget.style.background = "transparent";
+            }}
+            aria-label={t("settings")}
+          >
+            <Settings size={20} />
+          </button>
+        </div>
       </div>
     </div>
   );
