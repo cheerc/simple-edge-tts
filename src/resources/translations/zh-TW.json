@@ -1,5 +1,5 @@
 {
-  "app_title": "simple-edge-tts",
+  "app_title": "Simple Edge TTS",
   "voice_selection": "聲音選擇",
   "search_voice": "搜尋聲音...",
   "parameters": "參數設定",
@@ -42,7 +42,6 @@
   "speed": "速度",
   "about": "關於",
   "about_description": "跨平台 Edge TTS 語音合成桌面應用程式",
-  "status_playing": "播放中...",
   "status_saving": "儲存中...",
   "theme_light": "淺色模式",
   "theme_dark": "深色模式",

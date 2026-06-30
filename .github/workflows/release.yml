@@ -131,6 +131,8 @@ jobs:
           VERSION="${{ steps.version.outputs.VERSION }}"
           plutil -replace CFBundleShortVersionString -string "$VERSION" dist/simple-edge-tts.app/Contents/Info.plist
           plutil -replace CFBundleVersion -string "$VERSION" dist/simple-edge-tts.app/Contents/Info.plist
+          plutil -replace CFBundleName -string "Simple Edge TTS" dist/simple-edge-tts.app/Contents/Info.plist
+          plutil -replace CFBundleDisplayName -string "Simple Edge TTS" dist/simple-edge-tts.app/Contents/Info.plist
           echo "Info.plist version set to $VERSION"
 
       - name: Create .dmg (macOS)

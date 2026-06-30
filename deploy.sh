@@ -70,6 +70,32 @@ do_verify() {
         exit 0
     fi
 
+    # Ensure config directory exists and back up any existing config.json
+    # so we can force enable_file_logging for this verification run.
+    VERIFY_CONFIG_DIR="$HOME/Library/Application Support/simple-edge-tts"
+    VERIFY_CONFIG_FILE="$VERIFY_CONFIG_DIR/config.json"
+    VERIFY_CONFIG_BACKUP="$VERIFY_CONFIG_DIR/config.json.bak"
+    VERIFY_HAS_BACKUP=0
+
+    mkdir -p "$VERIFY_CONFIG_DIR"
+    if [ -f "$VERIFY_CONFIG_FILE" ]; then
+        cp "$VERIFY_CONFIG_FILE" "$VERIFY_CONFIG_BACKUP"
+        VERIFY_HAS_BACKUP=1
+    fi
+
+    # Create temporary config to force-enable file logging
+    echo '{"enable_file_logging": true}' > "$VERIFY_CONFIG_FILE"
+
+    verify_cleanup() {
+        # Restore original config
+        if [ "$VERIFY_HAS_BACKUP" -eq 1 ]; then
+            mv "$VERIFY_CONFIG_BACKUP" "$VERIFY_CONFIG_FILE" 2>/dev/null || true
+        else
+            rm -f "$VERIFY_CONFIG_FILE" 2>/dev/null || true
+        fi
+    }
+    trap verify_cleanup EXIT
+
     # 1. Build
     info "Building .app for verification..."
     do_build
@@ -77,7 +103,7 @@ do_verify() {
     # 2. Find previous log count to identify new log file
     local log_dir="$HOME/Library/Logs/simple-edge-tts"
     local prev_count
-    prev_count=$(ls -1 "$log_dir"/*.log 2>/dev/null | wc -l || echo 0)
+    prev_count=$(find "$log_dir" -maxdepth 1 -name "*.log" -type f 2>/dev/null | wc -l | tr -d ' ')
 
     # 3. Launch app (background, wait for startup)
     info "Launching .app..."
@@ -90,11 +116,11 @@ do_verify() {
     # 5. Read log — prefer new file, fallback to latest
     local log_file
     local new_count
-    new_count=$(ls -1 "$log_dir"/*.log 2>/dev/null | wc -l || echo 0)
+    new_count=$(find "$log_dir" -maxdepth 1 -name "*.log" -type f 2>/dev/null | wc -l | tr -d ' ')
     if [ "$new_count" -gt "$prev_count" ]; then
-        log_file=$(ls -t "$log_dir"/*.log | head -1)
+        log_file=$(find "$log_dir" -maxdepth 1 -name "*.log" -type f 2>/dev/null | sort | tail -n 1)
     else
-        log_file=$(ls -t "$log_dir"/*.log 2>/dev/null | head -1)
+        log_file=$(find "$log_dir" -maxdepth 1 -name "*.log" -type f 2>/dev/null | sort | tail -n 1)
     fi
 
     if [ -z "$log_file" ] || [ ! -f "$log_file" ]; then
@@ -211,10 +237,12 @@ do_build() {
 
     # Ref: #90 — Patch macOS .app Info.plist with correct version from pyproject.toml.
     if [ "$PLATFORM" = "macOS" ] && [ -d "dist/${APP_NAME}.app" ]; then
-        info "Patching Info.plist version → ${VERSION}..."
+        info "Patching Info.plist version and name..."
         plutil -replace CFBundleShortVersionString -string "$VERSION" "dist/${APP_NAME}.app/Contents/Info.plist"
         plutil -replace CFBundleVersion -string "$VERSION" "dist/${APP_NAME}.app/Contents/Info.plist"
-        pass "Info.plist version set to ${VERSION}"
+        plutil -replace CFBundleName -string "Simple Edge TTS" "dist/${APP_NAME}.app/Contents/Info.plist"
+        plutil -replace CFBundleDisplayName -string "Simple Edge TTS" "dist/${APP_NAME}.app/Contents/Info.plist"
+        pass "Info.plist patched successfully"
     fi
 
     # Post-build: macOS .dmg creation (optional)
