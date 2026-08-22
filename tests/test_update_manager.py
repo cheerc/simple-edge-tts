@@ -4,6 +4,7 @@ Ref: #179 — Auto-update download & install
 """
 
 import hashlib
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -431,3 +432,90 @@ class TestMacOSCopyInPlace:
 
         # Verify: installed to /Applications (existing behavior preserved)
         assert mgr._macos_installed_app == Path("/Applications/SimpleEdgeTTS.app")
+
+
+class TestWindowsRestart:
+    """Test #202 — Windows restart must not inherit stale _MEIPASS env.
+
+    PyInstaller one-file mode sets _MEIPASS in the parent's environment.
+    The update-restart .bat inherits it, so the NEW exe resolves its
+    bundled resources against the OLD (deleted) temp dir and crashes.
+    Fix: scrub _MEIPASS from the Popen env and reset it inside the bat
+    before `start`, plus set PYINSTALLER_RESET_ENVIRONMENT=1 on both.
+    """
+
+    # Windows-only subprocess flag; absent on macOS where tests run.
+    CREATE_NO_WINDOW = 0x08000000
+
+    def _make_mgr(self):
+        mgr = UpdateManager(current_version="0.1.0")
+        mgr._windows_new_exe = Path("/tmp/update/simple-edge-tts-new.exe")
+        return mgr
+
+    @patch("sys.platform", "win32")
+    @patch("subprocess.CREATE_NO_WINDOW", CREATE_NO_WINDOW, create=True)
+    @patch("subprocess.Popen")
+    @patch("pathlib.Path.write_text")
+    @patch("src.update_manager.UpdateManager._install_cleanup")
+    @patch("sys.executable", "/app/simple-edge-tts.exe")
+    def test_popen_env_scrubs_meipass(
+        self, mock_cleanup, mock_write, mock_popen
+    ):
+        """Popen env: no _MEIPASS, has PYINSTALLER_RESET_ENVIRONMENT=1."""
+        mgr = self._make_mgr()
+
+        with patch.dict(os.environ, {"_MEIPASS": "/old/_MEI1234", "PATH": os.environ.get("PATH", "")}):
+            with pytest.raises(SystemExit):
+                mgr._windows_restart()
+
+        mock_popen.assert_called_once()
+        env = mock_popen.call_args.kwargs["env"]
+        assert "_MEIPASS" not in env
+        assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+        # Other inherited vars survive the scrub
+        assert env["PATH"] == os.environ.get("PATH", "")
+
+    @patch("sys.platform", "win32")
+    @patch("subprocess.CREATE_NO_WINDOW", CREATE_NO_WINDOW, create=True)
+    @patch("subprocess.Popen")
+    @patch("pathlib.Path.write_text")
+    @patch("src.update_manager.UpdateManager._install_cleanup")
+    @patch("sys.executable", "/app/simple-edge-tts.exe")
+    def test_bat_content_resets_env_before_start(
+        self, mock_cleanup, mock_write, mock_popen
+    ):
+        """bat content: set lines present AND before the start line."""
+        mgr = self._make_mgr()
+
+        with patch.dict(os.environ, {"_MEIPASS": "/old/_MEI1234"}):
+            with pytest.raises(SystemExit):
+                mgr._windows_restart()
+
+        bat_content = mock_write.call_args.args[0]
+        assert 'set _MEIPASS=' in bat_content
+        assert 'set PYINSTALLER_RESET_ENVIRONMENT=1' in bat_content
+        start_idx = bat_content.index('start ""')
+        meipass_idx = bat_content.index('set _MEIPASS=')
+        pyreset_idx = bat_content.index('set PYINSTALLER_RESET_ENVIRONMENT=1')
+        assert meipass_idx < start_idx
+        assert pyreset_idx < start_idx
+
+    @patch("sys.platform", "win32")
+    @patch("subprocess.CREATE_NO_WINDOW", CREATE_NO_WINDOW, create=True)
+    @patch("subprocess.Popen")
+    @patch("pathlib.Path.write_text")
+    @patch("src.update_manager.UpdateManager._install_cleanup")
+    @patch("sys.executable", "/app/simple-edge-tts.exe")
+    def test_restart_exits_after_launch(
+        self, mock_cleanup, mock_write, mock_popen
+    ):
+        """Existing behavior preserved: launch → cleanup → exit(0)."""
+        mgr = self._make_mgr()
+
+        with pytest.raises(SystemExit) as exc_info:
+            mgr._windows_restart()
+
+        assert exc_info.value.code == 0
+        mock_popen.assert_called_once()
+        flags = mock_popen.call_args.kwargs["creationflags"]
+        assert flags == self.CREATE_NO_WINDOW
