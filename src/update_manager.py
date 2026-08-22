@@ -546,18 +546,31 @@ class UpdateManager:
             raise UpdateError("Install verification failed: .exe is empty")
 
     def _windows_restart(self) -> None:
-        """Write .bat → launch with CREATE_NO_WINDOW → exit."""
+        """Write .bat → launch with CREATE_NO_WINDOW → exit.
+
+        Ref: #202 — scrub _MEIPASS from the child environment. PyInstaller
+        one-file mode exports _MEIPASS; if the .bat inherits it, the NEW
+        exe resolves bundled resources against the OLD (soon-deleted)
+        temp dir and crashes on startup.
+        """
         import subprocess as sp
         import tempfile as tmp
 
         old_exe = sys.executable
         new_exe = self._windows_new_exe
 
+        # Clean env for the cmd.exe that runs the bat (and everything it starts).
+        restart_env = os.environ.copy()
+        restart_env.pop("_MEIPASS", None)
+        restart_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+
         bat_path = Path(tmp.gettempdir()) / "simple-edge-tts-update" / "install.bat"
         bat_content = (
             f'@echo off\r\n'
             f'timeout /t 2 /nobreak >nul\r\n'
             f'copy /Y "{new_exe}" "{old_exe}"\r\n'
+            f'set _MEIPASS=\r\n'
+            f'set PYINSTALLER_RESET_ENVIRONMENT=1\r\n'
             f'start "" "{old_exe}"\r\n'
             f'del "%~f0"\r\n'
         )
@@ -566,6 +579,7 @@ class UpdateManager:
         sp.Popen(
             ["cmd", "/c", str(bat_path)],
             creationflags=sp.CREATE_NO_WINDOW,
+            env=restart_env,
         )
         self._install_cleanup()
         sys.exit(0)
