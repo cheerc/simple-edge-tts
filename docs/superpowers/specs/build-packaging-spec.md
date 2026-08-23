@@ -32,6 +32,8 @@ macOS produces `.app` bundle + `.dmg`; Windows produces a single-file `.exe`.
 - Windows artifact: `dist/simple-edge-tts.exe` zipped as `dist/simple-edge-tts-windows.zip`
 - macOS artifact: `dist/simple-edge-tts.app` bundled into `dist/simple-edge-tts.dmg`
 - `build-exe` auto-downloads artifact after CI completion; cleans existing `.zip` to prevent extraction conflicts
+- **Bundle alignment contract**: `deploy.sh` and `.github/workflows/release.yml` each carry their own PyInstaller `--add-data` / `--hidden-import` list — any packaging change must be applied to **both**, they are not shared. `pyproject.toml` is a required bundle item: frozen builds fall back to reading it for version resolution when importlib.metadata is unavailable (Ref #174/#215).
+  - Carrier difference: `deploy.sh` uses a bash array, so comments may appear between items freely; `release.yml` uses backslash continuation lines — a comment line inside the chain terminates the command and turns every later line into a standalone command (exit 127). Keep comments outside the chain.
 
 ## Related
 

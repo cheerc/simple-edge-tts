@@ -17,6 +17,7 @@
 
 - `t2` typecheck（mypy）目前**不是** CI gate，可選擇性跑 `./workflow.sh t2`。
 - CI 的完整 gate 見 `.github/workflows/ci.yml`（Lint & Test job：`ruff check`、pytest、workflow YAML 驗證、frontend build/lint/test）。
+- **修改打包內容時（add-data / hidden-import / icon / version-file 等），`deploy.sh` 與 `release.yml` 兩處的 PyInstaller 參數必須同步修改**——兩者各自維護一份清單，不同步會導致本地 build 與 CI release build 行為分歧。對齊契約細節見 build-packaging-spec.md 的 Key Constraints。
 
 ## Version Bump
 
@@ -68,6 +69,16 @@ Release assets 應包含四項：
 | `SHA256SUMS.txt` | 全部 dmg/zip 的 checksum |
 
 Notes body 應含 macOS Gatekeeper 提示（release.yml 固定附加）+ What's Changed 自動清單。
+
+## Release 後驗證 Checklist
+
+CI 綠與 assets 齊全**不代表** frozen build 功能正常——打包差異只有實際安裝 CI build 才會暴露。Release 後安裝該版 build 逐項驗證：
+
+- [ ] **版本號正確**：footer 與 Settings → About 顯示 `vX.Y.Z` 且與 pyproject.toml 一致（frozen 版本解析鏈：importlib.metadata → bundled pyproject.toml）
+- [ ] **檢查更新可連線**：Settings 的「檢查更新」能成功回應（找到新版或「已是最新版本」），不得出現「更新檢查失敗」（frozen 下 SSL CA 解析依賴 certifi bundle）
+- [ ] **assets 四項齊全**：dmg / macos.zip / windows.zip / SHA256SUMS.txt
+
+為何需要：v0.1.2 實測中，footer 顯示 `0.0.0`（release.yml 缺 bundle pyproject.toml，Ref #215）且「檢查更新」恆失敗（frozen SSL CA 找不到系統根憑證，Ref #216），兩者 CI 都綠、assets 也齊全——只有裝起來用才發現。
 
 ## Related
 
