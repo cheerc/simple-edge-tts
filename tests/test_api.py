@@ -6,6 +6,7 @@ for the frontend to consume via window.pywebview.api.*.
 """
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -570,7 +571,10 @@ class TestCheckUpdate:
         """_get_app_version() falls back to pyproject.toml when package metadata missing."""
         with patch("importlib.metadata.version", side_effect=ImportError("no module")):
             ver = api._get_app_version()
-        assert ver == "0.1.1"  # from pyproject.toml in repo
+        # Parse the version independently so this test survives version bumps.
+        toml = (Path(__file__).parent.parent / "pyproject.toml").read_text()
+        parsed_version = re.search(r'version\s*=\s*"([^"]+)"', toml).group(1)
+        assert ver == parsed_version  # from pyproject.toml in repo
 
     def test_get_app_version_ultimate_fallback(self, api):
         """_get_app_version() returns '0.0.0' when both sources fail."""
