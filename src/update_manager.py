@@ -52,6 +52,9 @@ class UpdateManager:
         self._progress = 0
         self._cancel_flag = threading.Event()
         self._error_message: str | None = None
+        # Ref: #220 — True when install fell back to /Applications because the
+        # original location was not updatable (POSIX read-only or TCC denied).
+        self.installed_to_applications = False
 
     @property
     def state(self) -> UpdateState:
@@ -150,10 +153,8 @@ class UpdateManager:
 
         if self._is_macos():
             if not self._macos_target_is_writable():
-                raise UpdateError(
-                    "Cannot write to /Applications — please move "
-                    "the app to /Applications or check permissions"
-                )
+                # Ref: #220 — i18n key the frontend maps to a localized guide
+                raise UpdateError("update_install_permission_denied")
         elif self._is_windows():
             if not self._install_dir_is_writable():
                 raise UpdateError("Install directory is not writable")
@@ -176,6 +177,30 @@ class UpdateManager:
     def _app_is_in_applications_dir() -> bool:
         """Return True if the current executable lives under /Applications/."""
         return Path(sys.executable).resolve().parts[:2] == ("/", "Applications")
+
+    @staticmethod
+    def _macos_dir_allows_install(directory: Path) -> bool:
+        """Return True if the app may rename entries inside `directory`.
+
+        Ref: #220 — os.access(W_OK) only checks POSIX permission; macOS TCC
+        denies the app's own file operations in e.g. ~/Downloads (App
+        Management) while W_OK still reports True. Probe with a real rename,
+        which is exactly what the in-place replace needs.
+        """
+        probe = directory / f".simple-edge-tts-install-probe-{os.getpid()}"
+        try:
+            probe.write_text("")
+            probe.rename(probe.with_suffix(".probe2"))
+        except Exception as e:
+            logger.info("TCC install probe denied for %s: %s", directory, e)
+            return False
+        finally:
+            try:
+                probe.with_suffix(".probe2").unlink(missing_ok=True)
+                probe.unlink(missing_ok=True)
+            except Exception:
+                pass  # Best-effort cleanup of whichever name remains
+        return True
 
     @staticmethod
     def _install_dir_is_writable() -> bool:
@@ -464,7 +489,13 @@ class UpdateManager:
         else:
             # App NOT in /Applications
             original_app = Path(sys.executable).resolve().parents[2]
-            if os.access(original_app.parent, os.W_OK):
+            # Ref: #220 — W_OK alone is insufficient under macOS TCC; probe
+            # an actual rename. Denied → fall through to /Applications.
+            tcc_allows = (
+                os.access(original_app.parent, os.W_OK)
+                and self._macos_dir_allows_install(original_app.parent)
+            )
+            if tcc_allows:
                 # Case 1: Original dir writable → in-place replace
                 old_app = Path(str(original_app) + ".old")
                 if old_app.exists():
@@ -473,7 +504,12 @@ class UpdateManager:
                 shutil.move(str(self._macos_temp_app), str(original_app))
                 self._macos_installed_app = original_app
             else:
-                # Case 2: Not writable → install to /Applications (fallback)
+                # Case 2: Not writable OR TCC denied (#220) → /Applications
+                logger.info(
+                    "Original location %s not updatable, installing to /Applications",
+                    original_app.parent,
+                )
+                self.installed_to_applications = True
                 if target_app.exists():
                     old = Path(str(target_app) + ".old")
                     if old.exists():
