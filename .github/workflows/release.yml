@@ -167,6 +167,18 @@ jobs:
             dist/simple-edge-tts-macos.zip
           echo "macOS ZIP created"
 
+      # Ref: #223 — ZIP entry timestamps come from the file's LastWriteTime
+      # (DOS fields carry no timezone; Explorer shows them as-is). The runner
+      # clock is UTC, so stamp the exe to UTC+8 before packing so users see a
+      # time matching the release. Maintainer timezone is fixed (+08:00).
+      - name: Stamp exe timestamp to UTC+8 (Windows)
+        if: matrix.platform == 'Windows'
+        shell: pwsh
+        run: |
+          $local = [DateTime]::UtcNow.AddHours(8)
+          (Get-Item dist/simple-edge-tts.exe).LastWriteTime = $local
+          echo "exe mtime set to $local"
+
       - name: Create .zip (Windows)
         if: matrix.platform == 'Windows'
         shell: pwsh
