@@ -37,4 +37,4 @@ All three frozen branches use a write-test probe before committing to the exe di
 
 ## Known Tech Debt
 
-- PySide6 remains in transitional deps for pytest-qt UI tests; CI installs Qt system libs until full removal (post-T20). This is why CI tolerates exit code 134 (QThread cleanup SIGABRT).
+- None currently. PySide6/pytest-qt were fully removed in #45; CI runs pytest directly (no exit-code tolerance shims). The legacy `QT_QPA_PLATFORM=offscreen` env var and Qt system libs install remain in CI as harmless defensive defaults.
