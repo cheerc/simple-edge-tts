@@ -481,6 +481,15 @@ class Api:
 
         return "0.0.0"
 
+    @staticmethod
+    def get_app_version() -> str:
+        """Return the app version as JSON for the frontend (Issue #212).
+
+        Delegates to _get_app_version() so dev/frozen resolution stays in
+        one place. Read-only; frontend displays it in the footer and About.
+        """
+        return json.dumps({"version": Api._get_app_version()})
+
     @log_api_call
     def set_window(self, window: object) -> None:
         """Set the pywebview window reference for native file dialogs."""

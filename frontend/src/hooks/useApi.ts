@@ -65,6 +65,10 @@ const DownloadProgressSchema = z.object({
   error: z.string().nullable(),
 });
 
+const AppVersionSchema = z.object({
+  version: z.string(),
+});
+
 // ── Validation helper ──────────────────────────────────────────────────
 
 /**
@@ -112,6 +116,8 @@ export interface UseApiReturn {
   cancelDownload: () => Promise<void>;
   /** Install the downloaded update and restart the app. */
   installUpdate: () => Promise<{ success: boolean; error?: string }>;
+  /** App version from pyproject.toml SSOT (Ref #212). */
+  getAppVersion: () => Promise<string>;
 }
 
 // ── Hook implementation ────────────────────────────────────────────────
@@ -240,6 +246,13 @@ export function useApi(): UseApiReturn {
     return JSON.parse(result) as { success: boolean; error?: string };
   }, [getApi]);
 
+  // Ref: #212 — Footer/About version display
+  const getAppVersion = useCallback(async (): Promise<string> => {
+    const result = await getApi().get_app_version();
+    const parsed = validate<{ version: string }>(result, AppVersionSchema, "getAppVersion");
+    return parsed.version;
+  }, [getApi]);
+
   return useMemo(
     () => ({
       ready,
@@ -258,6 +271,7 @@ export function useApi(): UseApiReturn {
       getDownloadProgress,
       cancelDownload,
       installUpdate,
+      getAppVersion,
     }),
     [
       ready,
@@ -276,6 +290,7 @@ export function useApi(): UseApiReturn {
       getDownloadProgress,
       cancelDownload,
       installUpdate,
+      getAppVersion,
     ]
   );
 }

@@ -37,6 +37,19 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [outputDir, setOutputDir] = useState("");
 
+  // Ref: #212 — App version for footer/About display; null until loaded
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!api.ready || appVersion !== null) return;
+    api
+      .getAppVersion()
+      .then(setAppVersion)
+      .catch(() => {
+        /* Fail silent — footer shows name without version */
+      });
+  }, [api, api.ready, appVersion]);
+
   // Check for updates on mount (non-blocking, fail-silent)
   // Ref: #170 — respect auto_check_update config
   // Ref: #179 — start download on click instead of opening browser
@@ -362,7 +375,7 @@ function App() {
             opacity: 0.7,
           }}
         >
-          Simple Edge TTS
+          Simple Edge TTS{appVersion ? ` v${appVersion}` : ""}
         </span>
       </footer>
 
@@ -370,6 +383,7 @@ function App() {
       <SettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        appVersion={appVersion}
         api={api}
         t={t}
         language={language}

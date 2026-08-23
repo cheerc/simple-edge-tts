@@ -584,6 +584,33 @@ class TestCheckUpdate:
         assert ver == "0.0.0"
 
 
+class TestGetAppVersionIpc:
+    """Test get_app_version() — read-only IPC exposing app version (Issue #212)."""
+
+    def test_returns_json_with_version_from_pyproject(self, api):
+        """get_app_version() returns JSON {"version": ...} matching pyproject.toml."""
+        with patch("importlib.metadata.version", side_effect=ImportError("no module")):
+            result = api.get_app_version()
+        parsed = json.loads(result)
+        toml = (Path(__file__).parent.parent / "pyproject.toml").read_text()
+        parsed_version = re.search(r'version\s*=\s*"([^"]+)"', toml).group(1)
+        assert parsed["version"] == parsed_version
+
+    def test_uses_frozen_fallback_chain(self, api):
+        """get_app_version() delegates to _get_app_version() (importlib → pyproject chain)."""
+        with patch("importlib.metadata.version", side_effect=ImportError("no module")):
+            with patch.object(Api, "_get_app_version", return_value="9.9.9") as m:
+                result = api.get_app_version()
+        m.assert_called_once()
+        assert json.loads(result)["version"] == "9.9.9"
+
+    def test_degrades_to_zero_when_all_sources_fail(self, api):
+        """get_app_version() still returns valid JSON when both sources fail."""
+        with patch.object(Api, "_get_app_version", return_value="0.0.0"):
+            result = api.get_app_version()
+        assert json.loads(result) == {"version": "0.0.0"}
+
+
 class TestNotifyPlaybackFinished:
     """Test notify_playback_finished() — JS bridge playback end notification (Issue #113)."""
 

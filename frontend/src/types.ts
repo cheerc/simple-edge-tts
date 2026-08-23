@@ -108,6 +108,8 @@ export interface PyWebViewApi {
   get_download_progress(): Promise<string>;
   cancel_download(): Promise<string>;
   install_update(): Promise<string>;
+  // Ref: #212 — Footer/About version display
+  get_app_version(): Promise<string>;
 }
 
 /** Augment the global Window interface for PyWebView. */
