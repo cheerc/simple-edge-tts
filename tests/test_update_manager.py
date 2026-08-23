@@ -614,3 +614,70 @@ class TestWindowsRestart:
         mock_popen.assert_called_once()
         flags = mock_popen.call_args.kwargs["creationflags"]
         assert flags == self.CREATE_NO_WINDOW
+
+
+class TestMacOSRestartForensics:
+    """Test #221 — restart sequence forensic logging.
+
+    User report: new app starts but the old process survives. Each step
+    of the macOS restart must log pid + timestamp (INFO) and the log
+    must be flushed BEFORE os._exit so the trail survives the hard exit.
+    """
+
+    def _make_mgr(self):
+        mgr = UpdateManager(current_version="0.1.0")
+        mgr._macos_installed_app = Path("/Applications/SimpleEdgeTTS.app")
+        return mgr
+
+    @patch("sys.platform", "darwin")
+    @patch("subprocess.Popen")
+    @patch("src.update_manager.UpdateManager._install_cleanup")
+    @patch("src.update_manager.os._exit", side_effect=SystemExit(0))
+    def test_restart_logs_pid_and_timestamp_per_step(
+        self, mock_exit, mock_cleanup, mock_popen, caplog
+    ):
+        """_macos_restart emits INFO records containing its own pid."""
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="src.update_manager"):
+            mgr = self._make_mgr()
+            with pytest.raises(SystemExit):
+                mgr._macos_restart()
+
+        joined = "\n".join(r.getMessage() for r in caplog.records)
+        assert str(os.getpid()) in joined
+        # Steps logged: quarantine removal, launch, cleanup+exit
+        for marker in ("quarantine", "launching", "exit"):
+            assert any(marker in rec.message.lower() for rec in caplog.records), \
+                f"Missing forensic step '{marker}' in:\n{joined}"
+
+    @patch("sys.platform", "darwin")
+    @patch("subprocess.Popen")
+    @patch("src.update_manager.UpdateManager._install_cleanup")
+    @patch("src.update_manager.os._exit", side_effect=SystemExit(0))
+    def test_logs_flushed_before_hard_exit(self, mock_exit, mock_cleanup, mock_popen):
+        """Handlers are flushed before os._exit so logs survive."""
+        import logging
+
+        class FlushProbe(logging.StreamHandler):
+            def __init__(self):
+                super().__init__()
+                self.flushed_count = 0
+
+            def emit(self, record):
+                pass
+
+            def flush(self):
+                self.flushed_count += 1
+
+        probe = FlushProbe()
+        root = logging.getLogger()
+        root.addHandler(probe)
+        try:
+            mgr = self._make_mgr()
+            with pytest.raises(SystemExit):
+                mgr._macos_restart()
+        finally:
+            root.removeHandler(probe)
+
+        assert probe.flushed_count > 0, "log handlers were not flushed before os._exit"

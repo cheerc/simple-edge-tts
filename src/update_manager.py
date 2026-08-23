@@ -530,10 +530,30 @@ class UpdateManager:
                 "Install verification failed: .app bundle appears corrupt (no Info.plist)"
             )
 
+    @staticmethod
+    def _flush_logs() -> None:
+        """Flush all log handlers so records survive os._exit."""
+        import logging
+
+        for h in logging.getLogger().handlers:
+            try:
+                h.flush()
+            except Exception:
+                pass
+
     def _macos_restart(self) -> None:
-        """Launch new .app version and exit."""
+        """Launch new .app version and exit.
+
+        Ref: #221 — every step logs pid + timestamp (forensics for the
+        "old process survives" report), and handlers are flushed BEFORE
+        the unconditional hard exit.
+        """
         import subprocess
 
+        logger.info(
+            "[restart pid=%s] removing quarantine from %s",
+            os.getpid(), self._macos_installed_app,
+        )
         # Ref: #198 — Remove quarantine from installed app before launch
         # so Gatekeeper does not block the auto-updated bundle.
         try:
@@ -544,12 +564,27 @@ class UpdateManager:
         except Exception:
             pass  # Best-effort; quarantine may not exist
 
+        logger.info("[restart pid=%s] launching new app via open -n", os.getpid())
         subprocess.Popen(
             ["open", "-n", str(self._macos_installed_app)],
             start_new_session=True,
         )
-        self._install_cleanup()
-        os._exit(0)
+        # Ref: #221 — nothing after the launch may prevent the hard exit.
+        # Cleanup and logging failures are swallowed: the old process MUST
+        # terminate now that the new one is launched.
+        try:
+            self._install_cleanup()
+            logger.info(
+                "[restart pid=%s] cleanup done, exiting old process now", os.getpid()
+            )
+        except Exception:
+            logger.exception("[restart pid=%s] post-launch cleanup failed", os.getpid())
+        finally:
+            try:
+                self._flush_logs()
+            except Exception:
+                pass
+            os._exit(0)
 
     # ---- Windows -------------------------------------------------------
 
