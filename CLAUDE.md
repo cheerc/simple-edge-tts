@@ -53,7 +53,7 @@ uv run ruff check src/ tests/    # lint
 
 1. Lint: `uv run ruff check src/ tests/`
 2. Workflow YAML validation (parses every `.github/workflows/*.yml`)
-3. pytest with `QT_QPA_PLATFORM=offscreen`; PySide6 QThread cleanup causes SIGABRT after all tests pass — **exit code 134 is accepted as success**, not a failure
+3. pytest with `QT_QPA_PLATFORM=offscreen` (legacy defensive default; PySide6 removed in #45)
 4. Frontend: `npm ci`, `tsc -b`, `vite build`, oxlint
 
 mypy is not part of CI.
