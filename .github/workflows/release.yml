@@ -114,6 +114,9 @@ jobs:
             --add-data "src/resources${{ matrix.sep }}src/resources" \
             --add-data "src/static${{ matrix.sep }}src/static" \
             --add-data "frontend/dist${{ matrix.sep }}frontend/dist" \
+            # Ref: #215 — pyproject.toml is required for frozen version fallback
+            # (_get_app_version reads it when importlib.metadata fails).
+            --add-data "pyproject.toml${{ matrix.sep }}." \
             --hidden-import pystray \
             --hidden-import PIL \
             --hidden-import edge_tts \

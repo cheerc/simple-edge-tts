@@ -532,6 +532,20 @@ class TestCheckUpdate:
         parsed = json.loads(result)
         assert parsed == {"error": "version error"}
 
+    def test_manual_check_network_failure_returns_error_not_null(self, api, mock_config):
+        """Ref #216 — manual check failure surfaces as error, not null (false 'up to date')."""
+        with patch.object(Api, "_get_app_version", return_value="0.1.0"):
+            with patch("src.update_checker.UpdateChecker") as mock_checker_cls:
+                mock_checker = MagicMock()
+                mock_checker.check.side_effect = Exception(
+                    "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate"
+                )
+                mock_checker_cls.return_value = mock_checker
+                result = api.check_update(manual=True)
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "CERTIFICATE_VERIFY_FAILED" in parsed["error"]
+
     def test_returns_result_from_checker(self, api, mock_config):
         """check_update() returns the UpdateChecker result as JSON (auto-check, respects skip)."""
         mock_config.get.return_value = "0.9.0"  # skip_version
