@@ -8,24 +8,13 @@ Ref: T24 — Auto-update detect + notify
 
 import json
 import logging
-import ssl
 from urllib.request import Request, urlopen
+
+from src.ssl_utils import ssl_context as _ssl_context
 
 logger = logging.getLogger(__name__)
 
 GITHUB_API_URL = "https://api.github.com/repos/cheerc/simple-edge-tts/releases/latest"
-
-
-def _ssl_context() -> ssl.SSLContext:
-    """Return an SSL context trusting certifi's CA bundle.
-
-    Ref: #216 — frozen (PyInstaller) builds can't find system CA roots
-    (CERTIFICATE_VERIFY_FAILED). certifi ships as an edge-tts/aiohttp
-    transitive dep and is already bundled, so point ssl at it explicitly.
-    """
-    import certifi
-
-    return ssl.create_default_context(cafile=certifi.where())
 
 
 def compare_versions(current: str, latest: str) -> bool:

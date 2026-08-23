@@ -17,6 +17,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable
 
+from src import ssl_utils
+
 logger = logging.getLogger(__name__)
 
 # GitHub API
@@ -230,7 +232,6 @@ class UpdateManager:
         Returns a dict with keys: release, name, browser_download_url.
         """
         import json
-        import ssl
         from urllib.request import Request, urlopen
 
         try:
@@ -238,7 +239,7 @@ class UpdateManager:
                 GITHUB_API_RELEASES,
                 headers={"User-Agent": f"simple-edge-tts/{self.current_version}"},
             )
-            with urlopen(req, timeout=10, context=ssl.create_default_context()) as resp:
+            with urlopen(req, timeout=10, context=ssl_utils.ssl_context()) as resp:
                 release = json.loads(resp.read())
         except Exception as e:
             raise UpdateError(f"Failed to fetch release info: {e}") from e
@@ -268,7 +269,6 @@ class UpdateManager:
 
         Returns a dict mapping filename → sha256 hex digest.
         """
-        import ssl
         from urllib.request import Request, urlopen
 
         # Find SHA256SUMS.txt asset
@@ -287,7 +287,7 @@ class UpdateManager:
                 checksum_url,
                 headers={"User-Agent": f"simple-edge-tts/{self.current_version}"},
             )
-            with urlopen(req, timeout=10, context=ssl.create_default_context()) as resp:
+            with urlopen(req, timeout=10, context=ssl_utils.ssl_context()) as resp:
                 content = resp.read().decode("utf-8")
         except Exception as e:
             raise UpdateError(f"Failed to fetch checksums: {e}") from e
@@ -317,7 +317,6 @@ class UpdateManager:
         Reports progress via on_progress(percent) when Content-Length is known.
         Checks _cancel_flag periodically to support cancellation.
         """
-        import ssl
         from urllib.request import Request, urlopen
 
         url = asset["browser_download_url"]
@@ -331,7 +330,7 @@ class UpdateManager:
                 url,
                 headers={"User-Agent": f"simple-edge-tts/{self.current_version}"},
             )
-            with urlopen(req, timeout=60, context=ssl.create_default_context()) as resp:
+            with urlopen(req, timeout=60, context=ssl_utils.ssl_context()) as resp:
                 total = resp.headers.get("Content-Length")
                 total_bytes = int(total) if total else None
                 downloaded = 0

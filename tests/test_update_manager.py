@@ -681,3 +681,71 @@ class TestMacOSRestartForensics:
             root.removeHandler(probe)
 
         assert probe.flushed_count > 0, "log handlers were not flushed before os._exit"
+
+
+class TestCertifiContextUsage:
+    """Test #228 — all update_manager urlopen calls use the certifi context.
+
+    Frozen builds fail with CERTIFICATE_VERIFY_FAILED when urllib uses
+    the bare default context (system CA roots are not in the bundle).
+    urlopen is imported inside each method, so patch src.ssl_utils
+    and assert every call site received its context.
+    """
+
+    def _fake_response(self, payload=b"{}"):
+        response = MagicMock()
+        response.read.return_value = payload
+        response.headers.get.return_value = None
+        response.__enter__ = lambda s: s
+        response.__exit__ = MagicMock(return_value=False)
+        return response
+
+    @patch("urllib.request.urlopen")
+    @patch("src.ssl_utils.ssl_context")
+    def test_get_platform_asset_uses_certifi(self, mock_ctx, mock_urlopen):
+        mock_urlopen.return_value = self._fake_response()
+        mgr = UpdateManager(current_version="0.1.0")
+        with pytest.raises(UpdateError):
+            mgr._get_platform_asset()  # empty release → UpdateError after fetch
+
+        ctx = mock_urlopen.call_args.kwargs["context"]
+        assert ctx is mock_ctx.return_value
+        mock_ctx.assert_called_once()
+
+    @patch("urllib.request.urlopen")
+    @patch("src.ssl_utils.ssl_context")
+    def test_fetch_checksums_uses_certifi(self, mock_ctx, mock_urlopen):
+        mock_urlopen.return_value = self._fake_response(b"abc123  simple-edge-tts.dmg\n")
+        mgr = UpdateManager(current_version="0.1.0")
+        release = {"assets": [{"name": "SHA256SUMS.txt",
+                                "browser_download_url": "https://example.com/SHA256SUMS.txt"}]}
+        result = mgr._fetch_checksums(release)
+        assert result == {"simple-edge-tts.dmg": "abc123"}
+
+        ctx = mock_urlopen.call_args.kwargs["context"]
+        assert ctx is mock_ctx.return_value
+
+    @patch("urllib.request.urlopen")
+    @patch("src.ssl_utils.ssl_context")
+    def test_download_asset_uses_certifi(self, mock_ctx, mock_urlopen):
+        resp = self._fake_response(b"data")
+        resp.read.side_effect = [b"data", b""]
+        mock_urlopen.return_value = resp
+        mgr = UpdateManager(current_version="0.1.0")
+        asset = {"browser_download_url": "https://example.com/simple-edge-tts.exe",
+                 "name": "simple-edge-tts.exe"}
+        out_path = mgr._download_asset(asset)
+        assert out_path.exists()
+        out_path.unlink()
+
+        ctx = mock_urlopen.call_args.kwargs["context"]
+        assert ctx is mock_ctx.return_value
+
+    def test_update_checker_shares_ssl_utils(self):
+        """update_checker now delegates to src.ssl_utils (no second copy)."""
+        import inspect
+
+        import src.update_checker
+
+        source = inspect.getsource(src.update_checker)
+        assert "ssl_utils" in source
