@@ -35,5 +35,6 @@ macOS produces `.app` bundle + `.dmg`; Windows produces a single-file `.exe`.
 
 ## Related
 
+- Release 操作步驟（version bump / PR / tag / 驗證）: [release-process-spec.md](release-process-spec.md)
 - PR #107: feat(build/settings)
 - Issues: #106 (onefile), #104 (build-exe merge)
