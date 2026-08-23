@@ -16,6 +16,8 @@ interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
   api: UseApiReturn;
+  /** Ref: #212 — App version for the About block; null while loading/unavailable. */
+  appVersion: string | null;
   t: (key: string) => string;
   language: string;
   onLanguageChange: (lang: string) => Promise<void>;
@@ -28,7 +30,7 @@ const LANGUAGES = [
   { code: "zh-TW", label: "繁體中文" },
 ];
 
-export function SettingsModal({ open, onClose, api, t, language, onLanguageChange, onStartDownload }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, api, appVersion, t, language, onLanguageChange, onStartDownload }: SettingsModalProps) {
   const [closing, setClosing] = useState(false);
   const [enableLogging, setEnableLogging] = useState(false);
   const [showRestartDialog, setShowRestartDialog] = useState(false);
@@ -619,7 +621,7 @@ export function SettingsModal({ open, onClose, api, t, language, onLanguageChang
                 marginBottom: "var(--space-1)",
               }}
             >
-              Simple Edge TTS
+              Simple Edge TTS{appVersion ? ` v${appVersion}` : ""}
             </div>
             <div
               style={{
