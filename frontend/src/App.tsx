@@ -169,7 +169,10 @@ function App() {
     stopPolling();
 
     try {
-      await api.installUpdate();
+      const result = await api.installUpdate();
+      if (!result.success && result.error) {
+        addToast(t(result.error), "error");
+      }
     } catch {
       addToast(t("update_download_error"), "error");
     }

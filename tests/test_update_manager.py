@@ -242,7 +242,7 @@ class TestInstallGuard:
         mgr._state = UpdateState.READY
         shutdown_called = []
 
-        with pytest.raises(UpdateError, match="Cannot write to /Applications"):
+        with pytest.raises(UpdateError, match="update_install_permission_denied"):
             mgr.install(lambda: shutdown_called.append(1))
 
         assert len(shutdown_called) == 0
@@ -369,14 +369,16 @@ class TestMacOSCopyInPlace:
     @patch("sys.platform", "darwin")
     @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
     @patch("src.update_manager.os.access", return_value=True)
+    @patch("src.update_manager.UpdateManager._macos_dir_allows_install", return_value=True)
     @patch("shutil.rmtree")
     @patch("shutil.move")
     @patch("subprocess.run")
     @patch("tempfile.gettempdir", return_value="/tmp")
     def test_not_in_applications_writable_installs_in_place(
-        self, mock_tmpdir, mock_run, mock_move, mock_rmtree, mock_access, mock_in_apps
+        self, mock_tmpdir, mock_run, mock_move, mock_rmtree,
+        mock_probe, mock_access, mock_in_apps
     ):
-        """App not in /Applications + dir writable → in-place replace at original location."""
+        """App not in /Applications + dir writable + TCC probe passes → in-place replace."""
         mgr = self._setup_ready_mgr_with_dmg()
 
         with patch("pathlib.Path.mkdir"), \
@@ -432,6 +434,99 @@ class TestMacOSCopyInPlace:
 
         # Verify: installed to /Applications (existing behavior preserved)
         assert mgr._macos_installed_app == Path("/Applications/SimpleEdgeTTS.app")
+
+
+class TestMacOSTCCProbe:
+    """Test #220 — TCC probe before Case 1 in-place replace.
+
+    macOS TCC denies the app's own rmtree/move inside e.g. ~/Downloads
+    even though os.access(W_OK) reports True (it only checks POSIX
+    permission). A rename-probe detects this before destructive moves.
+    """
+
+    FAKE_APP = "/Users/test/Downloads/SimpleEdgeTTS.app"
+
+    def _setup_ready_mgr_with_dmg(self):
+        """Create an UpdateManager with a fake downloaded DMG ready for copy."""
+        mgr = UpdateManager(current_version="0.1.0")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dmg")
+        tmp.write(b"\x00" * 100)
+        tmp.close()
+        mgr._downloaded_path = Path(tmp.name)
+        mgr._macos_app_name = "SimpleEdgeTTS.app"
+        self._cleanup_tmp = tmp
+        return mgr
+
+    def test_probe_returns_false_when_rename_denied(self):
+        """Rename failure (PermissionError) → probe False despite W_OK True."""
+        real_access = os.access
+        with patch("os.access", side_effect=lambda p, m: real_access(p, m)), \
+             patch.object(Path, "rename", side_effect=PermissionError(1, "Operation not permitted")), \
+             patch("pathlib.Path.unlink"):
+            mgr = self._setup_ready_mgr_with_dmg()
+            assert mgr._macos_dir_allows_install(Path("/Users/test/Downloads")) is False
+
+    def test_probe_cleans_up_probe_file(self):
+        """Successful probe removes its temp file and returns True."""
+        calls = []
+
+        def fake_rename(self, target):  # noqa: ARG001 — patched method receives self
+            calls.append(("rename", str(target)))
+
+        def fake_unlink(self, *args, **kwargs):
+            calls.append(("unlink", ""))
+
+        with patch("pathlib.Path.write_text", lambda self, s: None), \
+             patch.object(Path, "rename", fake_rename), \
+             patch.object(Path, "unlink", fake_unlink):
+            mgr = UpdateManager(current_version="0.1.0")
+            assert mgr._macos_dir_allows_install(Path("/Users/test/Downloads")) is True
+            assert any(op == "unlink" for op, _ in calls)
+
+    @patch("sys.platform", "darwin")
+    @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
+    @patch("src.update_manager.os.access", return_value=True)
+    @patch("src.update_manager.UpdateManager._macos_dir_allows_install", return_value=False)
+    @patch("shutil.rmtree")
+    @patch("shutil.move")
+    @patch("subprocess.run")
+    @patch("tempfile.gettempdir", return_value="/tmp")
+    def test_tcc_denied_falls_back_to_applications(
+        self, mock_tmpdir, mock_run, mock_move, mock_rmtree,
+        mock_probe, mock_access, mock_in_apps
+    ):
+        """W_OK True but TCC probe denied → fallback to /Applications (not Errno 1)."""
+        mgr = self._setup_ready_mgr_with_dmg()
+
+        with patch("pathlib.Path.mkdir"), \
+             patch("pathlib.Path.glob", return_value=[Path("/tmp/mnt/SimpleEdgeTTS.app")]), \
+             patch("sys.executable", self.FAKE_APP + "/Contents/MacOS/simple-edge-tts"):
+            mgr._macos_copy()
+
+        # Verify: installed to /Applications despite W_OK being True
+        assert mgr._macos_installed_app == Path("/Applications/SimpleEdgeTTS.app")
+
+    @patch("sys.platform", "darwin")
+    @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
+    @patch("src.update_manager.os.access", return_value=True)
+    @patch("src.update_manager.UpdateManager._macos_dir_allows_install", return_value=True)
+    @patch("shutil.rmtree")
+    @patch("shutil.move")
+    @patch("subprocess.run")
+    @patch("tempfile.gettempdir", return_value="/tmp")
+    def test_probe_ok_keeps_in_place_replace(
+        self, mock_tmpdir, mock_run, mock_move, mock_rmtree,
+        mock_probe, mock_access, mock_in_apps
+    ):
+        """W_OK True and TCC probe passes → in-place replace preserved."""
+        mgr = self._setup_ready_mgr_with_dmg()
+
+        with patch("pathlib.Path.mkdir"), \
+             patch("pathlib.Path.glob", return_value=[Path("/tmp/mnt/SimpleEdgeTTS.app")]), \
+             patch("sys.executable", self.FAKE_APP + "/Contents/MacOS/simple-edge-tts"):
+            mgr._macos_copy()
+
+        assert mgr._macos_installed_app == Path(self.FAKE_APP)
 
 
 class TestWindowsRestart:

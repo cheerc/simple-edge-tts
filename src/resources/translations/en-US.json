@@ -64,5 +64,6 @@
   "update_verifying": "Verifying...",
   "update_download_error": "Download failed",
   "update_install_now": "Download & Install",
-  "update_cancel": "Cancel"
+  "update_cancel": "Cancel",
+  "update_install_permission_denied": "Cannot install the update in place (macOS permission restriction). Move the app to /Applications, or grant App Management access in System Settings → Privacy & Security."
 }

@@ -64,5 +64,6 @@
   "update_verifying": "驗證中...",
   "update_download_error": "下載失敗",
   "update_install_now": "下載並安裝",
-  "update_cancel": "取消"
+  "update_cancel": "取消",
+  "update_install_permission_denied": "無法在原位置安裝更新（macOS 權限限制）。請將 App 移至 /Applications，或在「系統設定 → 隱私權與安全性 → App 管理」中允許本 App。"
 }
