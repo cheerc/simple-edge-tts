@@ -370,12 +370,12 @@ class TestMacOSCopyInPlace:
     @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
     @patch("src.update_manager.os.access", return_value=True)
     @patch("src.update_manager.UpdateManager._macos_dir_allows_install", return_value=True)
+    @patch("src.update_manager.os.rename")
     @patch("shutil.rmtree")
-    @patch("shutil.move")
     @patch("subprocess.run")
     @patch("tempfile.gettempdir", return_value="/tmp")
     def test_not_in_applications_writable_installs_in_place(
-        self, mock_tmpdir, mock_run, mock_move, mock_rmtree,
+        self, mock_tmpdir, mock_run, mock_rmtree, mock_rename,
         mock_probe, mock_access, mock_in_apps
     ):
         """App not in /Applications + dir writable + TCC probe passes → in-place replace."""
@@ -390,20 +390,20 @@ class TestMacOSCopyInPlace:
         assert mgr._macos_installed_app is not None
         assert str(mgr._macos_installed_app) != str(Path("/Applications/SimpleEdgeTTS.app"))
         assert mgr._macos_installed_app == Path(self.FAKE_APP)
-        # Verify old app was moved aside (dst has .old suffix for atomic swap)
-        move_dsts = [str(c[0][1]) for c in mock_move.call_args_list]
-        assert any(".old" in d for d in move_dsts), \
-            f"Expected .old backup in move destinations: {move_dsts}"
+        # Verify old app was moved aside atomically (Ref #220 — dst has .old suffix)
+        rename_dsts = [str(c[0][1]) for c in mock_rename.call_args_list]
+        assert any(".old" in d for d in rename_dsts), \
+            f"Expected .old backup in rename destinations: {rename_dsts}"
 
     @patch("sys.platform", "darwin")
     @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
     @patch("src.update_manager.os.access", return_value=False)
+    @patch("src.update_manager.os.rename")
     @patch("shutil.rmtree")
-    @patch("shutil.move")
     @patch("subprocess.run")
     @patch("tempfile.gettempdir", return_value="/tmp")
     def test_not_in_applications_not_writable_falls_back_to_applications(
-        self, mock_tmpdir, mock_run, mock_move, mock_rmtree, mock_access, mock_in_apps
+        self, mock_tmpdir, mock_run, mock_rmtree, mock_rename, mock_access, mock_in_apps
     ):
         """App not in /Applications + dir NOT writable → install to /Applications."""
         mgr = self._setup_ready_mgr_with_dmg()
@@ -487,12 +487,12 @@ class TestMacOSTCCProbe:
     @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
     @patch("src.update_manager.os.access", return_value=True)
     @patch("src.update_manager.UpdateManager._macos_dir_allows_install", return_value=False)
+    @patch("src.update_manager.os.rename")
     @patch("shutil.rmtree")
-    @patch("shutil.move")
     @patch("subprocess.run")
     @patch("tempfile.gettempdir", return_value="/tmp")
     def test_tcc_denied_falls_back_to_applications(
-        self, mock_tmpdir, mock_run, mock_move, mock_rmtree,
+        self, mock_tmpdir, mock_run, mock_rmtree, mock_rename,
         mock_probe, mock_access, mock_in_apps
     ):
         """W_OK True but TCC probe denied → fallback to /Applications (not Errno 1)."""
@@ -510,12 +510,12 @@ class TestMacOSTCCProbe:
     @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
     @patch("src.update_manager.os.access", return_value=True)
     @patch("src.update_manager.UpdateManager._macos_dir_allows_install", return_value=True)
+    @patch("src.update_manager.os.rename")
     @patch("shutil.rmtree")
-    @patch("shutil.move")
     @patch("subprocess.run")
     @patch("tempfile.gettempdir", return_value="/tmp")
     def test_probe_ok_keeps_in_place_replace(
-        self, mock_tmpdir, mock_run, mock_move, mock_rmtree,
+        self, mock_tmpdir, mock_run, mock_rmtree, mock_rename,
         mock_probe, mock_access, mock_in_apps
     ):
         """W_OK True and TCC probe passes → in-place replace preserved."""
@@ -749,3 +749,248 @@ class TestCertifiContextUsage:
 
         source = inspect.getsource(src.update_checker)
         assert "ssl_utils" in source
+
+
+class TestInstallRestartHandoff:
+    """Test #221 — restart handoff coordination with the main-thread exit path.
+
+    install() tears down the UI (shutdown_handler → window.destroy) on the
+    JS bridge thread; pywebview's main loop then returns from webview.start()
+    and main() runs its normal-exit os._exit(0). The runtime log showed the
+    old process exiting BEFORE _macos_restart ever launched the new app.
+    The manager must expose a handoff state so the exit path can defer until
+    the restart sequence is done.
+    """
+
+    def _ready_mgr(self):
+        mgr = UpdateManager(current_version="0.1.0")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dmg")
+        tmp.write(b"\x00" * 10)
+        tmp.close()
+        mgr._downloaded_path = Path(tmp.name)
+        mgr._state = UpdateState.READY
+        return mgr
+
+    def _run_install_macos(self, mgr, shutdown_handler):
+        """Drive real install() on darwin with copy/verify stubbed and the
+        macOS restart boundaries patched (xattr no-op, Popen recorded,
+        os._exit recorded then SystemExit)."""
+        def fake_copy():
+            mgr._macos_installed_app = Path("/Applications/SimpleEdgeTTS.app")
+
+        with patch("sys.platform", "darwin"), \
+             patch("src.update_manager.UpdateManager._preflight_install"), \
+             patch("src.update_manager.UpdateManager._copy_files", side_effect=fake_copy), \
+             patch("src.update_manager.UpdateManager._verify_install"), \
+             patch("subprocess.run"), \
+             patch("subprocess.Popen") as mock_popen, \
+             patch("src.update_manager.os._exit", side_effect=SystemExit(0)) as mock_exit:
+            mock_popen.side_effect = lambda *a, **k: ("launch-new-app",)
+            mock_exit.side_effect = lambda code: (_ for _ in ()).throw(SystemExit(code))
+            with pytest.raises(SystemExit):
+                mgr.install(shutdown_handler)
+        return mock_popen, mock_exit
+
+    def test_not_pending_before_install(self):
+        mgr = self._ready_mgr()
+        assert mgr.restart_in_progress() is False
+
+    def test_pending_by_the_time_shutdown_handler_runs(self):
+        observed = {}
+
+        def handler():
+            observed["pending_in_handler"] = mgr.restart_in_progress()
+
+        mgr = self._ready_mgr()
+        self._run_install_macos(mgr, handler)
+
+        assert observed["pending_in_handler"] is True, (
+            "restart handoff must be armed BEFORE shutdown_handler destroys "
+            "the window, or the main thread can exit first (Ref #221)"
+        )
+
+    def test_not_pending_after_completion(self):
+        mgr = self._ready_mgr()
+        self._run_install_macos(mgr, lambda: None)
+        assert mgr.restart_in_progress() is False
+
+    def test_wait_released_after_restart_sequence(self):
+        order = []
+
+        def handler():
+            order.append("shutdown")
+
+        mgr = self._ready_mgr()
+        self._run_install_macos(mgr, handler)
+
+        # Main thread's bounded wait must return promptly once the restart
+        # sequence finished (hard-exit raised through the finally).
+        import time
+        start = time.monotonic()
+        done = mgr.wait_for_restart_completion(timeout_secs=5)
+        elapsed = time.monotonic() - start
+
+        assert done is True
+        assert elapsed < 5
+        assert order == ["shutdown"]
+
+    def test_complete_set_even_when_restart_fails(self):
+        """If _restart raises, the main thread must not wait forever."""
+        def handler():
+            pass
+
+        mgr = self._ready_mgr()
+        with patch("sys.platform", "darwin"), \
+             patch("src.update_manager.UpdateManager._preflight_install"), \
+             patch("src.update_manager.UpdateManager._copy_files"), \
+             patch("src.update_manager.UpdateManager._verify_install"), \
+             patch(
+                 "src.update_manager.UpdateManager._macos_restart",
+                 side_effect=RuntimeError("open failed"),
+             ):
+            with pytest.raises(RuntimeError):
+                mgr.install(handler)
+
+        assert mgr.restart_in_progress() is False
+        assert mgr.wait_for_restart_completion(timeout_secs=1) is True
+
+
+class TestMacOSTCCBundleDenial:
+    """Test #220 field evidence — the rename PROBE passes but moving the
+    signed .app bundle itself is TCC-denied (Errno 1 on CodeResources).
+
+    v0.1.5 log: probe-created dotfile renames fine in ~/Downloads, yet
+    shutil.move of SimpleEdgeTTS.app → .app.old failed mid-rmtree and left
+    a half-copied .old behind. Case 1 must therefore attempt an ATOMIC
+    bundle rename and fall back to /Applications (or raise the localized
+    permission error) WITHOUT any destructive mutation of the original.
+    """
+
+    FAKE_APP = "/Users/test/Downloads/SimpleEdgeTTS.app"
+    DENY_MARK = "/Downloads/SimpleEdgeTTS.app"
+
+    def _setup_ready_mgr_with_dmg(self):
+        mgr = UpdateManager(current_version="0.1.0")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dmg")
+        tmp.write(b"\x00" * 100)
+        tmp.close()
+        mgr._downloaded_path = Path(tmp.name)
+        mgr._macos_app_name = "SimpleEdgeTTS.app"
+        return mgr
+
+    @staticmethod
+    def _make_fs_policy(successful_mutations, denied_calls, deny_marks):
+        """Build rename/move/rmtree doubles that deny every operation whose
+        src or dst touches a deny_mark (the TCC-protected bundles) and
+        record everything else as a successful mutation."""
+
+        def hits_mark(*parts):
+            joined = " ".join(str(p) for p in parts)
+            return any(mark in joined for mark in deny_marks)
+
+        def fake_rename(src, dst):
+            if hits_mark(src, dst):
+                denied_calls.append(("rename", str(src), str(dst)))
+                raise PermissionError(1, "Operation not permitted")
+            successful_mutations.append(("rename", str(src), str(dst)))
+
+        def fake_move(src, dst):
+            if hits_mark(src, dst):
+                denied_calls.append(("move", str(src), str(dst)))
+                raise PermissionError(1, "Operation not permitted")
+            successful_mutations.append(("move", str(src), str(dst)))
+
+        def fake_rmtree(path, *args, **kwargs):
+            if hits_mark(path):
+                denied_calls.append(("rmtree", str(path)))
+                raise PermissionError(1, "Operation not permitted")
+            successful_mutations.append(("rmtree", str(path)))
+
+        return fake_rename, fake_move, fake_rmtree
+
+    def _patch_common(self):
+        return [
+            patch("sys.platform", "darwin"),
+            patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False),
+            patch("src.update_manager.os.access", return_value=True),
+            patch("src.update_manager.UpdateManager._macos_dir_allows_install", return_value=True),
+            patch("subprocess.run"),
+            patch("tempfile.gettempdir", return_value="/tmp"),
+        ]
+
+    def _with_copy_env(self, sys_executable_app):
+        return [
+            patch("pathlib.Path.mkdir"),
+            patch("pathlib.Path.glob", return_value=[Path("/tmp/mnt/SimpleEdgeTTS.app")]),
+            patch("sys.executable", sys_executable_app),
+        ]
+
+    def test_probe_passes_but_bundle_denied_falls_back_to_applications(self):
+        """Probe OK + atomic bundle rename denied → /Applications fallback;
+        the original Downloads bundle must be left untouched."""
+        successful, denied = [], []
+        fake_rename, fake_move, fake_rmtree = self._make_fs_policy(
+            successful, denied, [self.DENY_MARK]
+        )
+        mgr = self._setup_ready_mgr_with_dmg()
+
+        stacks = self._patch_common() + self._with_copy_env(
+            self.FAKE_APP + "/Contents/MacOS/simple-edge-tts"
+        ) + [
+            patch("src.update_manager.os.rename", side_effect=fake_rename),
+            patch("shutil.move", side_effect=fake_move),
+            patch("shutil.rmtree", side_effect=fake_rmtree),
+        ]
+        for stack in stacks:
+            stack.start()
+        try:
+            mgr._macos_copy()
+        finally:
+            for stack in stacks:
+                stack.stop()
+
+        assert mgr.installed_to_applications is True
+        assert mgr._macos_installed_app == Path("/Applications/SimpleEdgeTTS.app")
+        # No destructive operation against the Downloads bundle succeeded…
+        leaked = [m for m in successful if self.DENY_MARK in " ".join(m)]
+        assert not leaked, f"Destructive mutation escaped TCC denial: {leaked}"
+        # …and the denial was actually exercised (not vacuously skipped).
+        assert denied, "Expected at least one denied bundle operation"
+
+    def test_total_denial_raises_localized_permission_error(self):
+        """Neither ~/Downloads nor /Applications updatable → localized
+        UpdateError before any irreversible step; never a raw Errno 1."""
+        successful, denied = [], []
+        deny_marks = [
+            self.DENY_MARK,
+            "/Applications/SimpleEdgeTTS.app",
+        ]
+        fake_rename, fake_move, fake_rmtree = self._make_fs_policy(
+            successful, denied, deny_marks
+        )
+        mgr = self._setup_ready_mgr_with_dmg()
+
+        stacks = self._patch_common() + self._with_copy_env(
+            self.FAKE_APP + "/Contents/MacOS/simple-edge-tts"
+        ) + [
+            patch("src.update_manager.os.rename", side_effect=fake_rename),
+            patch("shutil.move", side_effect=fake_move),
+            patch("shutil.rmtree", side_effect=fake_rmtree),
+        ]
+        for stack in stacks:
+            stack.start()
+        try:
+            with pytest.raises(UpdateError) as exc_info:
+                mgr._macos_copy()
+        finally:
+            for stack in stacks:
+                stack.stop()
+
+        # Localized i18n key — NOT the raw "[Errno 1] Operation not permitted"
+        assert str(exc_info.value) == "update_install_permission_denied"
+        # Nothing was irreversibly mutated anywhere.
+        leaked = [
+            m for m in successful
+            if any(mark in " ".join(m) for mark in deny_marks)
+        ]
+        assert not leaked, f"Irreversible mutation under total denial: {leaked}"

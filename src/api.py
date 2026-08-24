@@ -588,6 +588,23 @@ class Api:
             self._update_manager.cancel()
         return json.dumps({"success": True})
 
+    def update_restart_pending(self) -> bool:
+        """True while an update install is mid-restart-handoff.
+
+        Ref: #221 — main()'s normal-exit block defers os._exit until the
+        restart sequence has launched the new app.
+        """
+        return (
+            self._update_manager is not None
+            and self._update_manager.restart_in_progress()
+        )
+
+    def wait_for_update_restart(self, timeout_secs: float) -> bool:
+        """Block until the pending update restart completes (or timeout)."""
+        if self._update_manager is None:
+            return True
+        return self._update_manager.wait_for_restart_completion(timeout_secs)
+
     @log_api_call
     def install_update(self) -> str:
         """Install the downloaded update and restart the app.

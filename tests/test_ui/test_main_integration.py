@@ -223,3 +223,67 @@ class TestInjectAudioBridgeJs:
         # Should not raise
         result = inject_audio_bridge_js(mock_window, bridge_path)
         assert result is False
+
+
+# ── execute_normal_exit_shutdown (Ref #221) ─────────────────────────────────
+
+class TestNormalExitShutdown:
+    """Tests for execute_normal_exit_shutdown() — post-webview.start() block.
+
+    Ref #221: the normal-exit os._exit(0) raced the update restart handoff
+    (old process died before _macos_restart launched the new app). The
+    extracted block must defer its exit while an update restart handoff is
+    pending, then run the regular idempotent cleanup + hard exit.
+    """
+
+    def test_defers_exit_while_update_restart_pending(
+        self, mock_audio_player, mock_tray, mock_window
+    ):
+        import src.main as main_module
+
+        order = []
+        api = MagicMock()
+        api.update_restart_pending.return_value = True
+        api.wait_for_update_restart.side_effect = (
+            lambda timeout_secs: order.append("wait-for-restart")
+        )
+        ctx = _make_ctx(mock_audio_player, api, mock_tray, mock_window)
+
+        with patch.object(main_module, "os") as mock_os, \
+             patch.object(
+                 main_module, "_run_cleanup",
+                 side_effect=lambda ctx: order.append("normal-cleanup"),
+             ):
+            mock_os._exit.side_effect = lambda code: order.append("hard-exit")
+            main_module.execute_normal_exit_shutdown(ctx)
+
+        assert api.update_restart_pending.called
+        api.wait_for_update_restart.assert_called_once()
+        assert order == ["wait-for-restart", "normal-cleanup", "hard-exit"], (
+            "main-thread exit must be deferred until after the restart "
+            "handoff completes (Ref #221)"
+        )
+
+    def test_exits_immediately_without_pending_update(
+        self, mock_audio_player, mock_tray, mock_window
+    ):
+        import src.main as main_module
+
+        order = []
+        api = MagicMock()
+        api.update_restart_pending.return_value = False
+        api.wait_for_update_restart.side_effect = (
+            lambda timeout_secs: order.append("wait-for-restart")
+        )
+        ctx = _make_ctx(mock_audio_player, api, mock_tray, mock_window)
+
+        with patch.object(main_module, "os") as mock_os, \
+             patch.object(
+                 main_module, "_run_cleanup",
+                 side_effect=lambda ctx: order.append("normal-cleanup"),
+             ):
+            mock_os._exit.side_effect = lambda code: order.append("hard-exit")
+            main_module.execute_normal_exit_shutdown(ctx)
+
+        api.wait_for_update_restart.assert_not_called()
+        assert order == ["normal-cleanup", "hard-exit"]

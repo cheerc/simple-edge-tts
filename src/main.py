@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 VITE_DEV_URL = "http://localhost:5173"
 
+# Ref: #221 — bounded wait for the update restart handoff before the
+# normal-exit hard exit. Generous vs. the 5s xattr timeout inside
+# _macos_restart; the handoff itself hard-exits the process on success.
+_UPDATE_RESTART_WAIT_SECS = 30
+
 
 def _get_base_dir() -> Path:
     """Get base path for bundled data files.
@@ -164,6 +169,39 @@ def inject_audio_bridge_js(window, bridge_js_path):
         return True
     except Exception:
         return False
+
+
+def execute_normal_exit_shutdown(ctx: AppContext):
+    """Execute the normal-exit shutdown sequence after webview.start() returns.
+
+    Extracted from main() for testability (Ref: #221). The update restart
+    handoff runs on the JS bridge thread AFTER window.destroy(); this block
+    runs on the main thread as soon as the webview loop unwinds. Without
+    coordination, os._exit(0) here could kill the process before
+    _macos_restart ever launches the new app — the exact #221 field
+    evidence (no [restart pid=] markers, then normal exit). So: defer a
+    bounded wait while a handoff is pending, then run the regular
+    idempotent cleanup and hard-exit.
+    """
+    if ctx.api.update_restart_pending():
+        logger.info("Update restart handoff in progress — deferring exit")
+        ctx.api.wait_for_update_restart(timeout_secs=_UPDATE_RESTART_WAIT_SECS)
+
+    # Ref: #47 — Clean up when webview exits normally (window closed via
+    # title-bar X, not via tray Quit). Ensures event loop thread is joined
+    # and tray is stopped so Python exits cleanly.
+    # All calls are idempotent so safe to run even if _on_quit() already did them.
+    # Ref: #145 — Wrapped in try/except to guarantee os._exit(0) always
+    # executes, even if a cleanup step raises unexpectedly.
+    logger.info("webview.start() finished. Starting normal exit cleanup...")
+    try:
+        _run_cleanup(ctx)
+    except Exception:
+        logger.exception("Exception during normal exit cleanup — forcing exit anyway")
+    logger.info("Normal exit cleanup complete. Exiting process.")
+    os._exit(0)  # Ref: #77 — force-exit to prevent hang from pywebview
+                 # _call threads stuck on Semaphore.acquire() during
+                 # Python finalization (Py_FinalizeEx thread join)
 
 
 def main():
@@ -320,21 +358,9 @@ def main():
     logger.info("Calling webview.start() event loop")
     webview.start(func=tts_engine.prefetch_voices)
 
-    # Ref: #47 — Clean up when webview exits normally (window closed via
-    # title-bar X, not via tray Quit). Ensures event loop thread is joined
-    # and tray is stopped so Python exits cleanly.
-    # All calls are idempotent so safe to run even if _on_quit() already did them.
-    # Ref: #145 — Wrapped in try/except to guarantee os._exit(0) always
-    # executes, even if a cleanup step raises unexpectedly.
-    logger.info("webview.start() finished. Starting normal exit cleanup...")
-    try:
-        _run_cleanup(ctx)
-    except Exception:
-        logger.exception("Exception during normal exit cleanup — forcing exit anyway")
-    logger.info("Normal exit cleanup complete. Exiting process.")
-    os._exit(0)  # Ref: #77 — force-exit to prevent hang from pywebview
-                 # _call threads stuck on Semaphore.acquire() during
-                 # Python finalization (Py_FinalizeEx thread join)
+    # Ref: #47/#221 — normal-exit path, extracted for testability; defers
+    # to a pending update restart handoff before the hard exit.
+    execute_normal_exit_shutdown(ctx)
 
 
 if __name__ == "__main__":
