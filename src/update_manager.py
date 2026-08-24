@@ -54,15 +54,15 @@ class UpdateManager:
         self._progress = 0
         self._cancel_flag = threading.Event()
         self._error_message: str | None = None
-        # Ref: #220 — True when install fell back to /Applications because the
-        # original location was not updatable (POSIX read-only or TCC denied).
-        self.installed_to_applications = False
         # Ref: #221 — handoff coordination with the main-thread exit path.
         # install() arms the handoff before tearing down the UI; the
         # post-webview.start() block defers its os._exit until the restart
         # sequence finishes (or the bounded wait lapses).
         self._restart_handoff_started = threading.Event()
         self._restart_complete = threading.Event()
+        # Ref: #233 — install target stays None until a copy actually
+        # succeeded; a permission denial must leave no installed-app state.
+        self._macos_installed_app: Path | None = None
 
     @property
     def state(self) -> UpdateState:
@@ -275,7 +275,10 @@ class UpdateManager:
         except Exception as e:
             raise UpdateError(f"Failed to fetch release info: {e}") from e
 
-        # Find the platform-appropriate asset
+        # Find the platform-appropriate asset.
+        # Ref: #234 — match the platform-specific suffix emitted by
+        # release.yml; a first-.zip-wins loop downloads the macOS archive
+        # on Windows (macos.zip sorts before windows.zip).
         is_macos = self._is_macos()
         for asset_data in release.get("assets", []):
             name = asset_data.get("name", "")
@@ -285,15 +288,23 @@ class UpdateManager:
                     "name": name,
                     "browser_download_url": asset_data["browser_download_url"],
                 }
-            if not is_macos and name.endswith(".zip"):
+            if not is_macos and name.endswith("-windows.zip"):
                 return {
                     "release": release,
                     "name": name,
                     "browser_download_url": asset_data["browser_download_url"],
                 }
 
-        platform_name = "macOS (.dmg)" if is_macos else "Windows (.zip)"
-        raise UpdateError(f"No {platform_name} asset found in latest release")
+        # Ref: #234 — fail closed with the available names so the mismatch
+        # is actionable instead of silently installing the wrong archive.
+        platform_name = "macOS (.dmg)" if is_macos else "Windows (-windows.zip)"
+        available = ", ".join(
+            a.get("name", "") for a in release.get("assets", [])
+        )
+        raise UpdateError(
+            f"No {platform_name} asset found in latest release "
+            f"(available assets: {available})"
+        )
 
     def _fetch_checksums(self, release: dict) -> dict[str, str]:
         """Download SHA256SUMS.txt from the release assets and parse it.
@@ -517,38 +528,28 @@ class UpdateManager:
             shutil.move(str(self._macos_temp_app), str(target_app))
             self._macos_installed_app = target_app
         else:
-            # App NOT in /Applications (Ref: #191)
+            # App NOT in /Applications (Ref: #191) — location-preserving
+            # contract (Ref: #233): the target is the bundle that is
+            # currently running, wherever it lives.
             original_app = Path(sys.executable).resolve().parents[2]
-            # Ref: #220 — W_OK alone is insufficient under macOS TCC; probe
-            # an actual rename. Denied → fall through to /Applications.
+            # Ref: #220/#233 — W_OK alone is insufficient under macOS TCC;
+            # probe an actual rename, and treat ANY denial (probe or atomic
+            # bundle replace) as a permission error instead of silently
+            # relocating the app to /Applications. In-place self-replace
+            # requires the App Management grant; without it the localized
+            # guidance tells the user what to do.
             tcc_allows = (
                 os.access(original_app.parent, os.W_OK)
                 and self._macos_dir_allows_install(original_app.parent)
             )
-            replaced_in_place = False
-            if tcc_allows:
-                replaced_in_place = self._macos_try_in_place_replace(original_app)
-
-            if replaced_in_place:
-                self._macos_installed_app = original_app
-            else:
-                if tcc_allows:
-                    # Ref: #220 field evidence — the probe can pass yet the
-                    # signed bundle's own rename is still denied. The failed
-                    # attempt was atomic, so nothing was mutated; fall back.
-                    logger.info(
-                        "In-place replace of %s denied by TCC; "
-                        "installing to /Applications",
-                        original_app,
-                    )
-                else:
-                    logger.info(
-                        "Original location %s not updatable, installing to /Applications",
-                        original_app.parent,
-                    )
-                self.installed_to_applications = True
-                self._macos_install_to_applications(target_app)
-                self._macos_installed_app = target_app
+            if not tcc_allows or not self._macos_try_in_place_replace(original_app):
+                logger.info(
+                    "In-place update of %s denied by macOS permissions; "
+                    "not relocating the app",
+                    original_app,
+                )
+                raise UpdateError("update_install_permission_denied")
+            self._macos_installed_app = original_app
 
     def _macos_try_in_place_replace(self, original_app: Path) -> bool:
         """Atomically swap the updated bundle into the app's current home.
@@ -581,33 +582,6 @@ class UpdateManager:
                 logger.exception("Rollback of %s failed", original_app)
             raise UpdateError(f"Failed to place updated app at {original_app}") from e
         return True
-
-    def _macos_install_to_applications(self, target_app: Path) -> None:
-        """Place the prepared bundle into /Applications.
-
-        Ref: #220 — atomic renames keep each step reversible; a TCC denial
-        surfaces as the localized update_install_permission_denied error
-        BEFORE any irreversible mutation, never as a raw errno or leftover
-        half-done .old.
-        """
-        import shutil
-
-        old_app = Path(str(target_app) + ".old")
-        moved_aside = False
-        try:
-            if old_app.exists():
-                shutil.rmtree(old_app)
-            if target_app.exists():
-                os.rename(target_app, old_app)
-                moved_aside = True
-            os.rename(self._macos_temp_app, target_app)
-        except OSError as e:
-            if moved_aside and not target_app.exists():
-                try:
-                    os.rename(old_app, target_app)
-                except OSError:
-                    logger.exception("Rollback of %s failed", target_app)
-            raise UpdateError("update_install_permission_denied") from e
 
     def _macos_verify(self) -> None:
         """Verify the swapped .app bundle is valid."""
