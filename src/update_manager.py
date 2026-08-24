@@ -146,7 +146,18 @@ class UpdateManager:
         # makes webview.start() return on the main thread, and that thread's
         # normal-exit os._exit(0) must not win the race against step 5.
         self._restart_handoff_started.set()
-        shutdown_handler()
+        try:
+            shutdown_handler()
+        except Exception:
+            # Ref: #221 reopened — a teardown failure must NOT skip the
+            # restart: the new app still has to launch and this process
+            # still has to exit, or the user is left with "updated but
+            # did not restart". The handler already ran the idempotent
+            # cleanup steps before failing; log and proceed to step 5.
+            logger.exception(
+                "Shutdown handler failed during update install — "
+                "continuing with restart"
+            )
 
         # Step 5: switch to new version
         try:
@@ -237,8 +248,32 @@ class UpdateManager:
 
     @staticmethod
     def _install_dir_is_writable() -> bool:
-        """Return True if the directory containing the executable is writable."""
-        return os.access(os.path.dirname(sys.executable), os.W_OK)
+        """Return True if the directory containing the executable accepts a
+        real create+delete probe.
+
+        Ref: #236 — os.access(W_OK) alone over-reports writability for
+        ACL-restricted or shared/UNC-backed install locations; gate the
+        preflight on an actual file operation instead.
+        """
+        return UpdateManager._dir_allows_write(Path(os.path.dirname(sys.executable)))
+
+    @staticmethod
+    def _dir_allows_write(directory: Path) -> bool:
+        """Probe `directory` with a real create+delete, not just W_OK.
+
+        Ref: #220 (macOS TCC) showed permission bits can lie in both
+        directions; the same applies to Windows ACL / UNC shares.
+        """
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=directory, prefix=".set-write-probe-", delete=False
+            ) as probe:
+                probe_path = Path(probe.name)
+            probe_path.unlink()
+            return True
+        except Exception as e:
+            logger.info("Write probe denied for %s: %s", directory, e)
+            return False
 
     @staticmethod
     def _macos_target_is_writable() -> bool:
@@ -606,6 +641,36 @@ class UpdateManager:
             except Exception:
                 pass
 
+    def _log_running_app_processes(self, phase: str) -> None:
+        """Log every running instance of the app bundle (pid + start time).
+
+        Ref: #221 reopened — field logs previously proved the launch
+        happened but never that the OLD process terminated. A pgrep-based
+        census at each restart phase gives the runtime evidence needed to
+        confirm (or refute) single-instance semantics without a debugger.
+        Best-effort: any failure here must never block the restart.
+        """
+        import subprocess
+
+        app_name = None
+        if self._macos_installed_app is not None:
+            app_name = self._macos_installed_app.name
+        pattern = app_name if app_name else "simple-edge-tts"
+        result = subprocess.run(
+            ["pgrep", "-fl", pattern],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        lines = [line for line in result.stdout.strip().splitlines() if line]
+        logger.info(
+            "[restart pid=%s] process census (%s): %d instance(s)%s",
+            os.getpid(),
+            phase,
+            len(lines),
+            " -> " + "; ".join(lines) if lines else "",
+        )
+
     def _macos_restart(self) -> None:
         """Launch new .app version and exit.
 
@@ -630,6 +695,16 @@ class UpdateManager:
             pass  # Best-effort; quarantine may not exist
 
         logger.info("[restart pid=%s] launching new app via open -n", os.getpid())
+        # Ref: #221 reopened — record the running-instance census BEFORE
+        # launch so the field log carries process-count evidence: the
+        # expected post-restart state is exactly one app instance (the
+        # newly launched one) and this pid gone.
+        try:
+            self._log_running_app_processes("before-launch")
+        except Exception:
+            logger.exception(
+                "[restart pid=%s] process census failed (non-fatal)", os.getpid()
+            )
         subprocess.Popen(
             ["open", "-n", str(self._macos_installed_app)],
             start_new_session=True,
@@ -688,6 +763,11 @@ class UpdateManager:
         one-file mode exports _MEIPASS; if the .bat inherits it, the NEW
         exe resolves bundled resources against the OLD (soon-deleted)
         temp dir and crashes on startup.
+        Ref: #236 — the relaunch is gated: copy /Y failure aborts, and
+        the installed target is byte-compared (fc /b) against the
+        downloaded exe BEFORE start. A failed or unchanged replacement
+        writes an update-failure marker and exits non-zero instead of
+        silently relaunching the old binary.
         """
         import subprocess as sp
         import tempfile as tmp
@@ -701,10 +781,20 @@ class UpdateManager:
         restart_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
 
         bat_path = Path(tmp.gettempdir()) / "simple-edge-tts-update" / "install.bat"
+        fail_marker = Path(tmp.gettempdir()) / "simple-edge-tts-update" / "update-failed.flag"
         bat_content = (
             f'@echo off\r\n'
             f'timeout /t 2 /nobreak >nul\r\n'
             f'copy /Y "{new_exe}" "{old_exe}"\r\n'
+            f'if errorlevel 1 (\r\n'
+            f'  echo update replace failed > "{fail_marker}"\r\n'
+            f'  exit /b 1\r\n'
+            f')\r\n'
+            f'fc /b "{old_exe}" "{new_exe}" >nul\r\n'
+            f'if errorlevel 1 (\r\n'
+            f'  echo update verify failed > "{fail_marker}"\r\n'
+            f'  exit /b 1\r\n'
+            f')\r\n'
             f'set _MEIPASS=\r\n'
             f'set PYINSTALLER_RESET_ENVIRONMENT=1\r\n'
             f'start "" "{old_exe}"\r\n'
