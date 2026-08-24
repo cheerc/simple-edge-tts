@@ -402,19 +402,25 @@ class TestMacOSCopyInPlace:
     @patch("shutil.rmtree")
     @patch("subprocess.run")
     @patch("tempfile.gettempdir", return_value="/tmp")
-    def test_not_in_applications_not_writable_falls_back_to_applications(
+    def test_not_writable_parent_raises_localized_error_without_relocation(
         self, mock_tmpdir, mock_run, mock_rmtree, mock_rename, mock_access, mock_in_apps
     ):
-        """App not in /Applications + dir NOT writable → install to /Applications."""
+        """Issue #233 — non-writable parent → localized permission error;
+        the app is NEVER relocated to /Applications."""
         mgr = self._setup_ready_mgr_with_dmg()
 
         with patch("pathlib.Path.mkdir"), \
              patch("pathlib.Path.glob", return_value=[Path("/tmp/mnt/SimpleEdgeTTS.app")]), \
              patch("sys.executable", self.FAKE_APP + "/Contents/MacOS/simple-edge-tts"):
-            mgr._macos_copy()
+            with pytest.raises(UpdateError) as exc_info:
+                mgr._macos_copy()
 
-        # Verify: installed to /Applications
-        assert mgr._macos_installed_app == Path("/Applications/SimpleEdgeTTS.app")
+        assert str(exc_info.value) == "update_install_permission_denied"
+        assert mgr._macos_installed_app is None
+        rename_targets = [str(c.args[1]) for c in mock_rename.call_args_list if c.args]
+        assert not any("/Applications/" in t for t in rename_targets), (
+            f"silent relocation attempted: {rename_targets}"
+        )
 
     @patch("sys.platform", "darwin")
     @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=True)
@@ -491,20 +497,26 @@ class TestMacOSTCCProbe:
     @patch("shutil.rmtree")
     @patch("subprocess.run")
     @patch("tempfile.gettempdir", return_value="/tmp")
-    def test_tcc_denied_falls_back_to_applications(
+    def test_tcc_denied_raises_localized_error_without_relocation(
         self, mock_tmpdir, mock_run, mock_rmtree, mock_rename,
         mock_probe, mock_access, mock_in_apps
     ):
-        """W_OK True but TCC probe denied → fallback to /Applications (not Errno 1)."""
+        """Issue #233 — W_OK True but TCC probe denied → localized permission
+        error; no /Applications relocation is attempted."""
         mgr = self._setup_ready_mgr_with_dmg()
 
         with patch("pathlib.Path.mkdir"), \
              patch("pathlib.Path.glob", return_value=[Path("/tmp/mnt/SimpleEdgeTTS.app")]), \
              patch("sys.executable", self.FAKE_APP + "/Contents/MacOS/simple-edge-tts"):
-            mgr._macos_copy()
+            with pytest.raises(UpdateError) as exc_info:
+                mgr._macos_copy()
 
-        # Verify: installed to /Applications despite W_OK being True
-        assert mgr._macos_installed_app == Path("/Applications/SimpleEdgeTTS.app")
+        assert str(exc_info.value) == "update_install_permission_denied"
+        assert mgr._macos_installed_app is None
+        rename_targets = [str(c.args[1]) for c in mock_rename.call_args_list if c.args]
+        assert not any("/Applications/" in t for t in rename_targets), (
+            f"silent relocation attempted: {rename_targets}"
+        )
 
     @patch("sys.platform", "darwin")
     @patch("src.update_manager.UpdateManager._app_is_in_applications_dir", return_value=False)
@@ -925,12 +937,52 @@ class TestMacOSTCCBundleDenial:
             patch("sys.executable", sys_executable_app),
         ]
 
-    def test_probe_passes_but_bundle_denied_falls_back_to_applications(self):
-        """Probe OK + atomic bundle rename denied → /Applications fallback;
-        the original Downloads bundle must be left untouched."""
+    def test_probe_passes_but_bundle_denied_raises_localized_error(self):
+        """Issue #233 field evidence — the probe passes yet moving the signed
+        bundle itself is TCC-denied. The updater must raise the localized
+        permission error WITHOUT relocating to /Applications and WITHOUT any
+        successful mutation of the original bundle."""
         successful, denied = [], []
         fake_rename, fake_move, fake_rmtree = self._make_fs_policy(
             successful, denied, [self.DENY_MARK]
+        )
+        mgr = self._setup_ready_mgr_with_dmg()
+
+        stacks = self._patch_common() + self._with_copy_env(
+            self.FAKE_APP + "/Contents/MacOS/simple-edge-tts"
+        ) + [
+            patch("src.update_manager.os.rename", side_effect=fake_rename),
+            patch("shutil.move", side_effect=fake_move),
+            patch("shutil.rmtree", side_effect=fake_rmtree),
+        ]
+        for stack in stacks:
+            stack.start()
+        try:
+            with pytest.raises(UpdateError) as exc_info:
+                mgr._macos_copy()
+        finally:
+            for stack in stacks:
+                stack.stop()
+
+        assert str(exc_info.value) == "update_install_permission_denied"
+        # No second installation was created anywhere…
+        relocated = [
+            m for m in successful if "/Applications/" in " ".join(m)
+        ]
+        assert not relocated, f"Silent /Applications install attempted: {relocated}"
+        # …and no destructive operation against the Downloads bundle succeeded.
+        leaked = [m for m in successful if self.DENY_MARK in " ".join(m)]
+        assert not leaked, f"Destructive mutation escaped TCC denial: {leaked}"
+        assert denied, "Expected at least one denied bundle operation"
+        assert mgr._macos_installed_app is None
+
+    def test_in_place_success_when_permitted(self):
+        """Issue #233 — with permissions available, a non-/Applications app
+        is replaced IN PLACE at its original path; /Applications is never
+        touched."""
+        successful, denied = [], []
+        fake_rename, fake_move, fake_rmtree = self._make_fs_policy(
+            successful, denied, []  # nothing denied — fully permitted host
         )
         mgr = self._setup_ready_mgr_with_dmg()
 
@@ -949,13 +1001,14 @@ class TestMacOSTCCBundleDenial:
             for stack in stacks:
                 stack.stop()
 
-        assert mgr.installed_to_applications is True
-        assert mgr._macos_installed_app == Path("/Applications/SimpleEdgeTTS.app")
-        # No destructive operation against the Downloads bundle succeeded…
-        leaked = [m for m in successful if self.DENY_MARK in " ".join(m)]
-        assert not leaked, f"Destructive mutation escaped TCC denial: {leaked}"
-        # …and the denial was actually exercised (not vacuously skipped).
-        assert denied, "Expected at least one denied bundle operation"
+        # Installed at the ORIGINAL running location (location-preserving)
+        assert mgr._macos_installed_app == Path(self.FAKE_APP)
+        rename_dsts = [str(m[2]) for m in successful if m[0] == "rename"]
+        assert any(".old" in d for d in rename_dsts), (
+            f"Expected atomic .old backup rename: {successful}"
+        )
+        apps_touched = [m for m in successful if "/Applications/" in " ".join(m)]
+        assert not apps_touched, f"/Applications must not be touched: {apps_touched}"
 
     def test_total_denial_raises_localized_permission_error(self):
         """Neither ~/Downloads nor /Applications updatable → localized
@@ -994,3 +1047,78 @@ class TestMacOSTCCBundleDenial:
             if any(mark in " ".join(m) for mark in deny_marks)
         ]
         assert not leaked, f"Irreversible mutation under total denial: {leaked}"
+
+
+class TestGetPlatformAssetSelection:
+    """Issue #234 — Windows must select simple-edge-tts-windows.zip.
+
+    The v0.1.7 release exposes BOTH simple-edge-tts-macos.zip and
+    simple-edge-tts-windows.zip; a first-.zip-wins loop downloads the
+    macOS bundle archive on Windows and install fails with
+    "No .exe found in downloaded archive". Selection must match the
+    platform-specific suffix emitted by release.yml, and a missing
+    platform asset must fail closed with the available names listed.
+    """
+
+    RELEASE_ASSETS = [
+        {"name": "SHA256SUMS.txt", "browser_download_url": "u/SUMS"},
+        {"name": "simple-edge-tts-macos.zip", "browser_download_url": "u/macos"},
+        {"name": "simple-edge-tts-windows.zip", "browser_download_url": "u/win"},
+        {"name": "simple-edge-tts.dmg", "browser_download_url": "u/dmg"},
+    ]
+
+    def _mgr(self):
+        return UpdateManager(current_version="0.1.7")
+
+    def _release_json(self, assets):
+        import json
+
+        return json.dumps({"assets": assets}).encode()
+
+    @patch("sys.platform", "win32")
+    @patch("urllib.request.urlopen")
+    def test_windows_selects_windows_zip_among_both_zips(self, mock_urlopen):
+        resp = MagicMock()
+        resp.read.return_value = self._release_json(self.RELEASE_ASSETS)
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = resp
+
+        asset = self._mgr()._get_platform_asset()
+
+        assert asset["name"] == "simple-edge-tts-windows.zip"
+        assert asset["browser_download_url"] == "u/win"
+
+    @patch("sys.platform", "darwin")
+    @patch("urllib.request.urlopen")
+    def test_macos_still_selects_dmg(self, mock_urlopen):
+        resp = MagicMock()
+        resp.read.return_value = self._release_json(self.RELEASE_ASSETS)
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = resp
+
+        asset = self._mgr()._get_platform_asset()
+
+        assert asset["name"] == "simple-edge-tts.dmg"
+
+    @patch("urllib.request.urlopen")
+    def test_missing_platform_asset_fails_closed_listing_available(self, mock_urlopen):
+        """No windows zip in the release → actionable error naming assets."""
+        resp = MagicMock()
+        resp.read.return_value = self._release_json(
+            [a for a in self.RELEASE_ASSETS if a["name"] != "simple-edge-tts-windows.zip"]
+        )
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = resp
+
+        mgr = self._mgr()
+        with patch("sys.platform", "win32"):
+            with pytest.raises(UpdateError) as exc_info:
+                mgr._get_platform_asset()
+
+        message = str(exc_info.value)
+        assert "simple-edge-tts-macos.zip" in message, (
+            f"error must list available assets for triage: {message}"
+        )
