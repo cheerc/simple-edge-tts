@@ -72,11 +72,21 @@ Notes body 應含 macOS Gatekeeper 提示（release.yml 固定附加）+ What's 
 
 ## Release 後驗證 Checklist
 
-CI 綠與 assets 齊全**不代表** frozen build 功能正常——打包差異只有實際安裝 CI build 才會暴露。Release 後安裝該版 build 逐項驗證：
+CI 綠與 assets 齊全**不代表** frozen build 功能正常——打包差異只有實際下載、驗證、安裝 CI build 才會暴露。Release 後依序逐項驗證：
+
+### 發佈產物驗證
+
+- [ ] **Release metadata 正確**：`gh release view vX.Y.Z` 顯示 tag 指向本次 merge commit、非 draft / 非 prerelease，notes body 含 What's Changed 自動清單與 macOS Gatekeeper 提示（release.yml 固定附加）。
+- [ ] **assets 四項齊全**：dmg / macos.zip / windows.zip / SHA256SUMS.txt（同一 `gh release view` 輸出核對）。
+- [ ] **實際下載 dmg/zip assets**：`gh release download vX.Y.Z` 把三個安裝檔抓回本地——只看 assets 列表不算通過；檔案必須存在且大小 > 0。
+- [ ] **checksum 驗證**：在下載目錄跑 `shasum -a 256 -c SHA256SUMS.txt`（Linux：`sha256sum -c SHA256SUMS.txt`），全部安裝檔必須 `OK`；任何 mismatch 代表上傳損毀或 assets 不成套。
+
+### 安裝後驗證（install/restart）
+
+安裝該版 build（dmg 拖入 Applications 或解壓 macOS zip / Windows zip）並啟動一次：
 
 - [ ] **版本號正確**：footer 與 Settings → About 顯示 `vX.Y.Z` 且與 pyproject.toml 一致（frozen 版本解析鏈：importlib.metadata → bundled pyproject.toml）
 - [ ] **檢查更新可連線**：Settings 的「檢查更新」能成功回應（找到新版或「已是最新版本」），不得出現「更新檢查失敗」（frozen 下 SSL CA 解析依賴 certifi bundle）
-- [ ] **assets 四項齊全**：dmg / macos.zip / windows.zip / SHA256SUMS.txt
 
 為何需要：v0.1.2 實測中，footer 顯示 `0.0.0`（release.yml 缺 bundle pyproject.toml，Ref #215）且「檢查更新」恆失敗（frozen SSL CA 找不到系統根憑證，Ref #216），兩者 CI 都綠、assets 也齊全——只有裝起來用才發現。
 
