@@ -638,3 +638,121 @@ class TestNotifyPlaybackFinished:
         result = api.notify_playback_finished()
         assert result is None
 
+
+
+class TestUpdateRestartHandoffIntegration:
+    """Ref #220/#221 — end-to-end restart handoff through REAL production
+    entries: Api.install_update → UpdateManager.install → registered
+    shutdown handler (execute_quit_shutdown) → _macos_restart, with the
+    main thread observing the guard exactly as main.py's exit block does.
+    """
+
+    @patch("sys.platform", "darwin")
+    def test_main_thread_observes_pending_and_exit_follows_launch(self):
+        import tempfile
+        import threading
+        import time
+        from types import SimpleNamespace
+
+        from src.main import execute_quit_shutdown
+        from src.update_manager import UpdateManager, UpdateState
+
+        api = Api(mock_tts_engine := MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        del mock_tts_engine
+
+        mgr = UpdateManager(current_version="0.1.5")
+        ready = tempfile.NamedTemporaryFile(delete=False, suffix=".dmg")
+        ready.write(b"\x00" * 10)
+        ready.close()
+        mgr._downloaded_path = Path(ready.name)
+        mgr._state = UpdateState.READY
+        api._update_manager = mgr
+
+        order = []
+        lock = threading.Lock()
+
+        def record(event):
+            with lock:
+                order.append(event)
+
+        # Registered shutdown path — same shape as main.py's wiring (Ref #179)
+        ctx = SimpleNamespace(
+            audio_player=MagicMock(),
+            api=api,
+            tray=None,
+            window=MagicMock(),
+        )
+        observed_in_handler = {}
+
+        def shutdown_handler():
+            observed_in_handler["pending"] = mgr.restart_in_progress()
+            record("shutdown-handler-armed-verified")
+            execute_quit_shutdown(ctx)
+
+        # Same wiring shape as main.py's Ref #179 registration
+        api.set_shutdown_handler(shutdown_handler)
+
+        def fake_copy():
+            mgr._macos_installed_app = Path("/Applications/SimpleEdgeTTS.app")
+
+        gate = threading.Event()
+
+        def blocking_xattr(cmd, **kwargs):
+            # Simulate slow pre-launch work where the old code lost the race:
+            # hold the bridge thread until the main thread reaches its guard.
+            gate.wait(timeout=10)
+
+        def fake_popen(*args, **kwargs):
+            record("launch-new-app")
+
+        def fake_hard_exit(code):
+            record(f"old-process-exit({code})")
+            raise SystemExit(code)
+
+        with patch("src.update_manager.UpdateManager._preflight_install"), \
+             patch("src.update_manager.UpdateManager._copy_files", side_effect=fake_copy), \
+             patch("src.update_manager.UpdateManager._verify_install"), \
+             patch("subprocess.run", side_effect=blocking_xattr), \
+             patch("subprocess.Popen", side_effect=fake_popen), \
+             patch("src.update_manager.os._exit", side_effect=fake_hard_exit):
+
+            def bridge_target():
+                try:
+                    api.install_update()
+                except SystemExit:
+                    pass  # patched hard exit — production would be dead here
+
+            bridge = threading.Thread(target=bridge_target)
+            bridge.start()
+
+            # Main-thread exit block (post-webview.start) — production shape:
+            deadline = time.monotonic() + 5
+            pending_seen = False
+            while time.monotonic() < deadline:
+                if api.update_restart_pending():
+                    pending_seen = True
+                    break
+                time.sleep(0.005)
+            assert pending_seen, "main thread never observed the pending handoff"
+            record("main-observed-pending")
+
+            # Release the bridge's pre-launch work only now; a correct guard
+            # keeps this process alive until launch + hard exit are done.
+            gate.set()
+            completed = api.wait_for_update_restart(timeout_secs=10)
+            record("main-resumed-after-completion")
+            bridge.join(timeout=10)
+
+        assert not bridge.is_alive()
+        assert completed is True
+        assert observed_in_handler["pending"] is True, (
+            "handoff must be armed before the registered handler destroys "
+            "the window (Ref #221)"
+        )
+        idx = {event: i for i, event in enumerate(order)}
+        assert idx["launch-new-app"] < idx["old-process-exit(0)"], (
+            f"new app must launch before old process exits: {order}"
+        )
+        assert idx["old-process-exit(0)"] < idx["main-resumed-after-completion"], (
+            f"main exit must not preempt the restart sequence: {order}"
+        )

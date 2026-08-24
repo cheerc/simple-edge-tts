@@ -57,6 +57,12 @@ class UpdateManager:
         # Ref: #220 — True when install fell back to /Applications because the
         # original location was not updatable (POSIX read-only or TCC denied).
         self.installed_to_applications = False
+        # Ref: #221 — handoff coordination with the main-thread exit path.
+        # install() arms the handoff before tearing down the UI; the
+        # post-webview.start() block defers its os._exit until the restart
+        # sequence finishes (or the bounded wait lapses).
+        self._restart_handoff_started = threading.Event()
+        self._restart_complete = threading.Event()
 
     @property
     def state(self) -> UpdateState:
@@ -136,10 +142,35 @@ class UpdateManager:
         self._verify_install()
 
         # Step 4: now safe to tear down — copy succeeded
+        # Ref: #221 — arm the handoff BEFORE the UI teardown: window.destroy()
+        # makes webview.start() return on the main thread, and that thread's
+        # normal-exit os._exit(0) must not win the race against step 5.
+        self._restart_handoff_started.set()
         shutdown_handler()
 
         # Step 5: switch to new version
-        self._restart()
+        try:
+            self._restart()
+        finally:
+            # macOS success hard-exits inside _restart; this release covers
+            # failure paths and Windows sys.exit so a waiting main thread
+            # never blocks forever.
+            self._restart_complete.set()
+
+    def restart_in_progress(self) -> bool:
+        """True while install() is between UI teardown and restart completion.
+
+        Ref: #221 — lets main()'s exit path defer os._exit until the
+        restart sequence has launched the new app and terminated us.
+        """
+        return (
+            self._restart_handoff_started.is_set()
+            and not self._restart_complete.is_set()
+        )
+
+    def wait_for_restart_completion(self, timeout_secs: float) -> bool:
+        """Block until the restart sequence completes; False on timeout."""
+        return self._restart_complete.wait(timeout_secs)
 
     def _preflight_install(self) -> None:
         """Run platform-specific checks BEFORE shutting down the UI.
@@ -486,7 +517,7 @@ class UpdateManager:
             shutil.move(str(self._macos_temp_app), str(target_app))
             self._macos_installed_app = target_app
         else:
-            # App NOT in /Applications
+            # App NOT in /Applications (Ref: #191)
             original_app = Path(sys.executable).resolve().parents[2]
             # Ref: #220 — W_OK alone is insufficient under macOS TCC; probe
             # an actual rename. Denied → fall through to /Applications.
@@ -494,28 +525,89 @@ class UpdateManager:
                 os.access(original_app.parent, os.W_OK)
                 and self._macos_dir_allows_install(original_app.parent)
             )
+            replaced_in_place = False
             if tcc_allows:
-                # Case 1: Original dir writable → in-place replace
-                old_app = Path(str(original_app) + ".old")
-                if old_app.exists():
-                    shutil.rmtree(old_app)
-                shutil.move(str(original_app), str(old_app))
-                shutil.move(str(self._macos_temp_app), str(original_app))
+                replaced_in_place = self._macos_try_in_place_replace(original_app)
+
+            if replaced_in_place:
                 self._macos_installed_app = original_app
             else:
-                # Case 2: Not writable OR TCC denied (#220) → /Applications
-                logger.info(
-                    "Original location %s not updatable, installing to /Applications",
-                    original_app.parent,
-                )
+                if tcc_allows:
+                    # Ref: #220 field evidence — the probe can pass yet the
+                    # signed bundle's own rename is still denied. The failed
+                    # attempt was atomic, so nothing was mutated; fall back.
+                    logger.info(
+                        "In-place replace of %s denied by TCC; "
+                        "installing to /Applications",
+                        original_app,
+                    )
+                else:
+                    logger.info(
+                        "Original location %s not updatable, installing to /Applications",
+                        original_app.parent,
+                    )
                 self.installed_to_applications = True
-                if target_app.exists():
-                    old = Path(str(target_app) + ".old")
-                    if old.exists():
-                        shutil.rmtree(old)
-                    shutil.move(str(target_app), str(old))
-                shutil.move(str(self._macos_temp_app), str(target_app))
+                self._macos_install_to_applications(target_app)
                 self._macos_installed_app = target_app
+
+    def _macos_try_in_place_replace(self, original_app: Path) -> bool:
+        """Atomically swap the updated bundle into the app's current home.
+
+        Ref: #220 — every bundle operation starts as an atomic os.rename so
+        a TCC denial leaves NO half-copied .old and NO moved-away original.
+        Returns False when the environment denies the replacement; raises a
+        clean UpdateError only after restoring the original placement if the
+        new-bundle placement fails.
+        """
+        import shutil
+
+        old_app = Path(str(original_app) + ".old")
+        try:
+            if old_app.exists():
+                shutil.rmtree(old_app)
+            os.rename(original_app, old_app)
+        except OSError as e:
+            logger.info("Bundle replace denied for %s: %s", original_app, e)
+            return False
+
+        try:
+            shutil.move(str(self._macos_temp_app), str(original_app))
+        except OSError as e:
+            # Roll back so the running app keeps a valid home, then surface
+            # a clean error instead of a raw errno.
+            try:
+                os.rename(old_app, original_app)
+            except OSError:
+                logger.exception("Rollback of %s failed", original_app)
+            raise UpdateError(f"Failed to place updated app at {original_app}") from e
+        return True
+
+    def _macos_install_to_applications(self, target_app: Path) -> None:
+        """Place the prepared bundle into /Applications.
+
+        Ref: #220 — atomic renames keep each step reversible; a TCC denial
+        surfaces as the localized update_install_permission_denied error
+        BEFORE any irreversible mutation, never as a raw errno or leftover
+        half-done .old.
+        """
+        import shutil
+
+        old_app = Path(str(target_app) + ".old")
+        moved_aside = False
+        try:
+            if old_app.exists():
+                shutil.rmtree(old_app)
+            if target_app.exists():
+                os.rename(target_app, old_app)
+                moved_aside = True
+            os.rename(self._macos_temp_app, target_app)
+        except OSError as e:
+            if moved_aside and not target_app.exists():
+                try:
+                    os.rename(old_app, target_app)
+                except OSError:
+                    logger.exception("Rollback of %s failed", target_app)
+            raise UpdateError("update_install_permission_denied") from e
 
     def _macos_verify(self) -> None:
         """Verify the swapped .app bundle is valid."""
