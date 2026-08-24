@@ -647,6 +647,7 @@ class TestUpdateRestartHandoffIntegration:
     main thread observing the guard exactly as main.py's exit block does.
     """
 
+    @patch("sys.platform", "darwin")
     def test_main_thread_observes_pending_and_exit_follows_launch(self):
         import tempfile
         import threading
