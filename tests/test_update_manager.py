@@ -339,14 +339,26 @@ class TestWindowsWritableCheck:
     @patch("sys.platform", "win32")
     @patch("os.access", return_value=True)
     def test_writable_check_passes(self, mock_access):
+        # Ref #236 — the check is now a real create+delete probe; os.access
+        # no longer decides the outcome.
         mgr = UpdateManager(current_version="0.1.0")
-        assert mgr._install_dir_is_writable() is True
+        with patch(
+            "src.update_manager.UpdateManager._dir_allows_write",
+            return_value=True,
+        ):
+            assert mgr._install_dir_is_writable() is True
 
     @patch("sys.platform", "win32")
     @patch("os.access", return_value=False)
     def test_writable_check_fails(self, mock_access):
+        # Ref #236 — a denied probe fails the check even if os.access
+        # over-reports (here: mocked to False, but either way).
         mgr = UpdateManager(current_version="0.1.0")
-        assert mgr._install_dir_is_writable() is False
+        with patch(
+            "src.update_manager.UpdateManager._dir_allows_write",
+            return_value=False,
+        ):
+            assert mgr._install_dir_is_writable() is False
 
 
 class TestMacOSCopyInPlace:
@@ -662,6 +674,31 @@ class TestMacOSRestartForensics:
         for marker in ("quarantine", "launching", "exit"):
             assert any(marker in rec.message.lower() for rec in caplog.records), \
                 f"Missing forensic step '{marker}' in:\n{joined}"
+
+    @patch("sys.platform", "darwin")
+    @patch("subprocess.Popen")
+    @patch("src.update_manager.UpdateManager._install_cleanup")
+    @patch("src.update_manager.os._exit", side_effect=SystemExit(0))
+    def test_restart_logs_process_census_before_launch(
+        self, mock_exit, mock_cleanup, mock_popen, caplog
+    ):
+        """Ref #221 reopened — the restart sequence must record the set of
+        running app processes BEFORE launching the new instance, so the
+        field log can prove the old process actually terminated (the
+        current logs show intent but no process-count evidence)."""
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="src.update_manager"):
+            mgr = self._make_mgr()
+            with patch(
+                "src.update_manager.UpdateManager._log_running_app_processes",
+            ) as mock_census:
+                with pytest.raises(SystemExit):
+                    mgr._macos_restart()
+
+        mock_census.assert_called_once_with("before-launch")
+        joined = "\n".join(r.getMessage() for r in caplog.records)
+        assert "before-launch" in joined or mock_census.called
 
     @patch("sys.platform", "darwin")
     @patch("subprocess.Popen")
@@ -1122,3 +1159,154 @@ class TestGetPlatformAssetSelection:
         assert "simple-edge-tts-macos.zip" in message, (
             f"error must list available assets for triage: {message}"
         )
+
+
+class TestMacOSRestartSurvivesShutdownFailure:
+    """Test #221 reopened — install() restart MUST run even when the
+    shutdown handler raises.
+
+    Field evidence (v0.1.6): the log shows install_update → handoff armed
+    → normal-exit cleanup, but NO [restart pid=] markers. If
+    shutdown_handler() raises (e.g. a pywebview destroy error during UI
+    teardown), the current code propagates before _restart(), so the new
+    app is never launched and the old process exits via main()'s bounded
+    wait — the user sees "app updated but did not restart". The restart
+    sequence is the step that guarantees exactly one new instance; it
+    must be attempted regardless of how the teardown ends.
+    """
+
+    def _ready_mgr(self):
+        mgr = UpdateManager(current_version="0.1.0")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dmg")
+        tmp.write(b"\x00" * 10)
+        tmp.close()
+        mgr._downloaded_path = Path(tmp.name)
+        mgr._state = UpdateState.READY
+        return mgr
+
+    def test_restart_still_runs_when_shutdown_handler_raises(self):
+        """shutdown_handler() raising must not skip _restart()."""
+        mgr = self._ready_mgr()
+
+        def exploding_handler():
+            raise RuntimeError("window.destroy failed")
+
+        with patch("sys.platform", "darwin"), \
+             patch("src.update_manager.UpdateManager._preflight_install"), \
+             patch("src.update_manager.UpdateManager._copy_files"), \
+             patch("src.update_manager.UpdateManager._verify_install"), \
+             patch("src.update_manager.UpdateManager._macos_restart") as mock_restart:
+            mgr.install(exploding_handler)
+
+        mock_restart.assert_called_once(), (
+            "_restart must still run after a failing shutdown handler — "
+            "otherwise the new version never launches (#221 field evidence)"
+        )
+        assert mgr.restart_in_progress() is False
+
+
+class TestWindowsRestartReplacementVerification:
+    """Test #236 — Windows relaunch must only start a VERIFIED replaced exe.
+
+    User report: original process closes, app restarts on the OLD version,
+    and the original executable is unchanged. The bat runs copy /Y then
+    unconditionally starts the old path; a failed or ineffective copy
+    (locked file, ACL/UNC denial) silently relaunches the old binary.
+    The bat must gate the relaunch on (a) copy success and (b) byte-level
+    identity of the target vs the downloaded exe.
+    """
+
+    CREATE_NO_WINDOW = 0x08000000
+
+    def _make_mgr(self):
+        mgr = UpdateManager(current_version="0.1.6")
+        mgr._windows_new_exe = Path(r"C:\temp\new\simple-edge-tts.exe")
+        return mgr
+
+    @patch("sys.platform", "win32")
+    @patch("subprocess.CREATE_NO_WINDOW", CREATE_NO_WINDOW, create=True)
+    @patch("subprocess.Popen")
+    @patch("pathlib.Path.write_text")
+    @patch("src.update_manager.UpdateManager._install_cleanup")
+    @patch("sys.executable", r"C:\Users\u\Downloads\simple-edge-tts.exe")
+    def test_bat_gates_start_on_copy_success(
+        self, mock_cleanup, mock_write, mock_popen
+    ):
+        """The bat must check the copy errorlevel BEFORE starting the app;
+        a failed copy must write a failure marker and exit non-zero."""
+        mgr = self._make_mgr()
+
+        with pytest.raises(SystemExit):
+            mgr._windows_restart()
+
+        bat_content = mock_write.call_args.args[0]
+        copy_idx = bat_content.lower().index("copy /y")
+        start_idx = bat_content.index('start ""')
+        assert copy_idx < start_idx
+        # Gate: the relaunch happens ONLY if the copy succeeded.
+        between = bat_content[copy_idx:start_idx]
+        assert "errorlevel" in between.lower(), (
+            "bat must branch on copy /Y errorlevel before start "
+            "(#236: failed copy still relaunched the old exe)"
+        )
+
+    @patch("sys.platform", "win32")
+    @patch("subprocess.CREATE_NO_WINDOW", CREATE_NO_WINDOW, create=True)
+    @patch("subprocess.Popen")
+    @patch("pathlib.Path.write_text")
+    @patch("src.update_manager.UpdateManager._install_cleanup")
+    @patch("sys.executable", r"C:\Users\u\Downloads\simple-edge-tts.exe")
+    def test_bat_verifies_target_identity_before_relaunch(
+        self, mock_cleanup, mock_write, mock_popen
+    ):
+        """After copying, the bat must verify the installed file matches the
+        new exe (fc /b) and refuse to relaunch on mismatch."""
+        mgr = self._make_mgr()
+
+        with pytest.raises(SystemExit):
+            mgr._windows_restart()
+
+        bat_content = mock_write.call_args.args[0]
+        assert "fc /b" in bat_content, (
+            "bat must byte-compare installed target vs downloaded exe "
+            "(#236: unchanged target must not produce a relaunch)"
+        )
+        fc_idx = bat_content.index("fc /b")
+        start_idx = bat_content.index('start ""')
+        assert fc_idx < start_idx, "identity check must precede the relaunch"
+        between = bat_content[fc_idx:start_idx]
+        assert "goto" in between or "exit" in between.lower(), (
+            "identity-check failure must abort the relaunch"
+        )
+
+    def test_local_writable_dir_passes_real_probe(self):
+        """A genuinely writable local directory passes the write probe."""
+        with tempfile.TemporaryDirectory() as d:
+            assert UpdateManager._dir_allows_write(Path(d)) is True
+
+    def test_unwritable_dir_fails_despite_os_access_true(self):
+        """Ref #236 — os.access(W_OK) can over-report writability (ACL /
+        lock states); a REAL create+delete probe must detect denial.
+
+        Regression: a directory chmod 0o555 denies writes while
+        os.access may still be reported True by a mocked environment;
+        the probe must not rely on os.access alone.
+        """
+        import stat
+
+        with tempfile.TemporaryDirectory() as d:
+            ro_dir = Path(d) / "ro"
+            ro_dir.mkdir()
+            ro_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+            try:
+                # Simulate an over-reporting os.access: even if W_OK says
+                # yes, the actual write attempt fails.
+                with patch("src.update_manager.os.access", return_value=True):
+                    result = UpdateManager._dir_allows_write(ro_dir)
+            finally:
+                ro_dir.chmod(stat.S_IRWXU)
+            assert result is False, (
+                "write probe must do a real create+delete, not trust "
+                "os.access(W_OK) (#236: Downloads-backed path passed "
+                "the old check yet replacement failed)"
+            )
