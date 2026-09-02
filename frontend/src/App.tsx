@@ -98,6 +98,23 @@ function App() {
     }
   }, []);
 
+  const installUpdate = useCallback(async () => {
+    // Ref: #179 reviewer finding F4 — stop polling before install()
+    // to prevent IPC disconnect race during app restart
+    stopPolling();
+
+    try {
+      const result = await api.installUpdate();
+      if (!result.success && result.error) {
+        // Reactive if i18n key (update_*), otherwise plain backend string
+        const isI18nKey = result.error.startsWith("update_");
+        addToast(isI18nKey ? { key: result.error } : result.error, "error");
+      }
+    } catch {
+      addToast({ key: "update_download_error" }, "error");
+    }
+  }, [api, addToast, stopPolling]);
+
   const startDownload = useCallback(async () => {
     // Remove previous download toast if any
     if (downloadToastIdRef.current) {
@@ -108,14 +125,14 @@ function App() {
     try {
       await api.downloadUpdate();
     } catch {
-      addToast(t("update_download_error"), "error");
+      addToast({ key: "update_download_error" }, "error");
       return;
     }
 
     const toastId = addToast(
-      t("update_downloading"),
+      { key: "update_downloading" },
       "info",
-      [{ label: t("update_cancel"), onClick: () => { stopPolling(); api.cancelDownload(); removeToast(toastId); } }],
+      [{ label: { key: "update_cancel" }, onClick: () => { stopPolling(); api.cancelDownload(); removeToast(toastId); } }],
       0  // no auto-dismiss during download
     );
     downloadToastIdRef.current = toastId;
@@ -128,7 +145,7 @@ function App() {
         if (progress.state === "ready") {
           stopPolling();
           updateToast(toastId, {
-            message: t("update_downloaded"),
+            message: { key: "update_downloaded" },
             progress: undefined,
             durationMs: 0,  // persist until user action
             actions: [
@@ -141,7 +158,7 @@ function App() {
         } else if (progress.state === "error") {
           stopPolling();
           updateToast(toastId, {
-            message: progress.error || t("update_download_error"),
+            message: progress.error ? progress.error : { key: "update_download_error" },
             variant: "error",
             progress: undefined,
             actions: undefined,
@@ -149,11 +166,11 @@ function App() {
           });
           downloadToastIdRef.current = null;
         } else {
-          // downloading / verifying — update progress bar
+          // downloading / verifying — update progress bar (reactive, progress shown via bar)
           updateToast(toastId, {
             message: progress.state === "verifying"
-              ? t("update_verifying")
-              : `${t("update_downloading")} ${progress.progress}%`,
+              ? { key: "update_verifying" }
+              : { key: "update_downloading" },
             progress: progress.progress,
           });
         }
@@ -161,22 +178,7 @@ function App() {
         // Poll failed silently — keep waiting
       }
     }, 500);
-  }, [api, t, addToast, updateToast, removeToast, stopPolling]);
-
-  const installUpdate = useCallback(async () => {
-    // Ref: #179 reviewer finding F4 — stop polling before install()
-    // to prevent IPC disconnect race during app restart
-    stopPolling();
-
-    try {
-      const result = await api.installUpdate();
-      if (!result.success && result.error) {
-        addToast(t(result.error), "error");
-      }
-    } catch {
-      addToast(t("update_download_error"), "error");
-    }
-  }, [api, t, addToast, stopPolling]);
+  }, [api, addToast, updateToast, removeToast, stopPolling, installUpdate]);
 
   // Cleanup polling on unmount
   useEffect(() => {
