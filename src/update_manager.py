@@ -768,6 +768,13 @@ class UpdateManager:
         downloaded exe BEFORE start. A failed or unchanged replacement
         writes an update-failure marker and exits non-zero instead of
         silently relaunching the old binary.
+        Ref: #239 — add bat telemetry (LOG) and reliable relaunch:
+        every copy/fc/start errorlevel is logged to bat.log; the launch
+        uses `start \"\" /d \"<exe_dir>\" \"<exe>\"` so spaces/UNC-adjacent
+        paths and CREATE_NO_WINDOW wd do not silently drop the restart
+        (field: G:\\... Downloads with spaces, old became new but no
+        auto-restart); fail paths still write update-failed.flag with
+        errorlevel and never relaunch the old binary.
         """
         import subprocess as sp
         import tempfile as tmp
@@ -782,23 +789,44 @@ class UpdateManager:
 
         bat_path = Path(tmp.gettempdir()) / "simple-edge-tts-update" / "install.bat"
         fail_marker = Path(tmp.gettempdir()) / "simple-edge-tts-update" / "update-failed.flag"
+        bat_log = Path(tmp.gettempdir()) / "simple-edge-tts-update" / "bat.log"
+        # Use quoted parent dir for /d; handles spaces (e.g. "C:\\Program Files\\...").
+        # PureWindowsPath correctly splits on "\" even when running on POSIX (CI/macOS).
+        from pathlib import PureWindowsPath
+
+        old_dir = str(PureWindowsPath(old_exe).parent)
         bat_content = (
             f'@echo off\r\n'
+            f'set "LOG={bat_log}"\r\n'
+            f'echo [%date% %time%] _windows_restart bat start >> "%LOG%" 2>&1\r\n'
+            f'echo new_exe="{new_exe}" old_exe="{old_exe}" >> "%LOG%" 2>&1\r\n'
             f'timeout /t 2 /nobreak >nul\r\n'
-            f'copy /Y "{new_exe}" "{old_exe}"\r\n'
+            f'echo copy /Y "{new_exe}" "{old_exe}" >> "%LOG%" 2>&1\r\n'
+            f'copy /Y "{new_exe}" "{old_exe}" >> "%LOG%" 2>&1\r\n'
             f'if errorlevel 1 (\r\n'
-            f'  echo update replace failed > "{fail_marker}"\r\n'
+            f'  echo copy failed errorlevel=%errorlevel% >> "%LOG%" 2>&1\r\n'
+            f'  echo update replace failed errorlevel=%errorlevel% > "{fail_marker}"\r\n'
             f'  exit /b 1\r\n'
             f')\r\n'
-            f'fc /b "{old_exe}" "{new_exe}" >nul\r\n'
+            f'echo copy ok >> "%LOG%" 2>&1\r\n'
+            f'fc /b "{old_exe}" "{new_exe}" >> "%LOG%" 2>&1\r\n'
             f'if errorlevel 1 (\r\n'
-            f'  echo update verify failed > "{fail_marker}"\r\n'
+            f'  echo fc verify failed errorlevel=%errorlevel% >> "%LOG%" 2>&1\r\n'
+            f'  echo update verify failed errorlevel=%errorlevel% > "{fail_marker}"\r\n'
             f'  exit /b 1\r\n'
             f')\r\n'
+            f'echo fc verify ok >> "%LOG%" 2>&1\r\n'
             f'set _MEIPASS=\r\n'
             f'set PYINSTALLER_RESET_ENVIRONMENT=1\r\n'
-            f'start "" "{old_exe}"\r\n'
-            f'del "%~f0"\r\n'
+            f'echo start "" /d "{old_dir}" "{old_exe}" >> "%LOG%" 2>&1\r\n'
+            f'start "" /d "{old_dir}" "{old_exe}" >> "%LOG%" 2>&1\r\n'
+            f'if errorlevel 1 (\r\n'
+            f'  echo start failed errorlevel=%errorlevel% >> "%LOG%" 2>&1\r\n'
+            f'  echo update launch failed errorlevel=%errorlevel% > "{fail_marker}"\r\n'
+            f'  exit /b 1\r\n'
+            f')\r\n'
+            f'echo start ok >> "%LOG%" 2>&1\r\n'
+            f'(goto) 2>nul & del "%~f0"\r\n'
         )
         bat_path.write_text(bat_content)
 
